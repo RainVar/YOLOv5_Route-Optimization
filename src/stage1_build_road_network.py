@@ -22,17 +22,29 @@ def build_road_network(center_point, dist=800):
         print("Added elevation and edge grades.")
     else:
         print("Elevation raster not found. Skipping elevation.")
+    # Make graph bidirectional and calculate elevation gain per direction
+    edges_to_add = []
     for u, v, k, data in graph.edges(keys=True, data=True):
+        # Calculate elevation gain for u->v
+        elev_u = graph.nodes[u].get('elevation', 0)
+        elev_v = graph.nodes[v].get('elevation', 0)
         data['distance'] = data.get('length', 0)
-        data['elevation_gain'] = data.get('grade', 0)
-    print("Processed edge attributes.")
+        data['elevation_gain'] = elev_v - elev_u
+        # If reverse edge does not exist, add it
+        if not graph.has_edge(v, u, k):
+            rev_data = data.copy()
+            rev_data['elevation_gain'] = elev_u - elev_v
+            edges_to_add.append((v, u, k, rev_data))
+    for v, u, k, rev_data in edges_to_add:
+        graph.add_edge(v, u, key=k, **rev_data)
+    print("Processed edge attributes and ensured bidirectionality.")
     return graph
 
 if __name__ == "__main__":
     center_point = (10.299848, 123.871968)  # Approximate coordinates of Tisa, Cebu City
     os.makedirs('data', exist_ok=True)
     try:
-        road_network = build_road_network(center_point, dist=1000)
+        road_network = build_road_network(center_point, dist=200)
         if road_network is not None:
             ox.save_graphml(road_network, filepath=os.path.join('data', 'road_network.graphml'))
             print("Graph saved to data/road_network.graphml")

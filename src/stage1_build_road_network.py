@@ -65,6 +65,13 @@ if __name__ == "__main__":
         if road_network is not None:
             ox.save_graphml(road_network, filepath=os.path.join('data', 'road_network.graphml'))
             print("Graph saved to data/road_network.graphml")
-            ox.plot_graph(road_network)
+            # Display node IDs as labels
+            import matplotlib.pyplot as plt
+            import networkx as nx
+            fig, ax = ox.plot_graph(road_network, edge_linewidth=1, edge_color="gray", show=False, close=False)
+            pos = {node: (data['x'], data['y']) for node, data in road_network.nodes(data=True)}
+            node_labels = {node: str(node) for node in road_network.nodes()}
+            nx.draw_networkx_labels(road_network, pos=pos, labels=node_labels, ax=ax, font_size=8, font_color="white")
+            plt.show()
     except Exception as e:
         print(f"Error: {e}")

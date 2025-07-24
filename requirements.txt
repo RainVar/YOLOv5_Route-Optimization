@@ -3,3 +3,4 @@ networkx
 matplotlib
 numpy
 opencv-python
+rasterio

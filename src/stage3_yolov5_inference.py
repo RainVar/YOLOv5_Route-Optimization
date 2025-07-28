@@ -3,12 +3,14 @@ import csv
 import torch
 from pathlib import Path
 
-# Model file path
-MODEL_PATH = "models/best.pt"
-IMAGE_METADATA = "image_metadata.csv"
-DETECTIONS_CSV = "detections.csv"
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+MODEL_PATH = "models/best.pt"           # Path to YOLOv5 model
+IMAGE_METADATA = "image_metadata.csv"   # Metadata CSV from image download stage
+DETECTIONS_CSV = "detections.csv"       # Output CSV for detections
 
-# Load YOLOv5 model
+# Load YOLOv5 model (from torch hub)
 model = torch.hub.load('ultralytics/yolov5', 'custom', path=MODEL_PATH, force_reload=True)
 
 # Read image metadata
@@ -28,16 +30,19 @@ with open(DETECTIONS_CSV, "w", newline="") as f:
     for row in image_rows:
         image_path = row["image_path"]
         if not os.path.exists(image_path):
+            # Skip if image file does not exist
             continue
-
-        # Run YOLOv5 inference
-        results = model(image_path)
-        detections = results.xyxy[0].cpu().numpy()  # [xmin, ymin, xmax, ymax, conf, cls]
-
-        for det in detections:
-            xmin, ymin, xmax, ymax, conf, cls = det
-            writer.writerow([
-                row["segment_id"], row["u"], row["v"], row["k"], row["index"],
-                row["lat"], row["lng"], row["heading"], row["image_path"],
-                int(cls), float(conf), float(xmin), float(ymin), float(xmax), float(ymax)
-            ])
+        try:
+            # Run YOLOv5 inference
+            results = model(image_path)
+            detections = results.xyxy[0].cpu().numpy()  # [xmin, ymin, xmax, ymax, conf, cls]
+            for det in detections:
+                xmin, ymin, xmax, ymax, conf, cls = det
+                writer.writerow([
+                    row["segment_id"], row["u"], row["v"], row["k"], row["index"],
+                    row["lat"], row["lng"], row["heading"], row["image_path"],
+                    int(cls), float(conf), float(xmin), float(ymin), float(xmax), float(ymax)
+                ])
+        except Exception as e:
+            print(f"Error running YOLOv5 on {image_path}: {e}")
+            continue

@@ -1,15 +1,20 @@
 import csv
 import joblib
 
-# Regression model location models/paser_regressor.joblib
-REGRESSION_MODEL_PATH = "models/paser_regressor.joblib"
-DETECTIONS_CSV = "detections.csv"
-SCORES_CSV = "proxy_paser_scores.csv"
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+REGRESSION_MODEL_PATH = "models/paser_regressor.joblib"  # Path to regression model
+DETECTIONS_CSV = "detections.csv"                        # Input: YOLOv5 detections
+SCORES_CSV = "proxy_paser_scores.csv"                    # Output: PASER scores per image
 
 # Load regression model
 regressor = joblib.load(REGRESSION_MODEL_PATH)
 
-# Read detections
+# Read detections and group by image
+# Each image may have multiple detections
+# We'll aggregate features for each image
+
 detections_by_image = {}
 with open(DETECTIONS_CSV, newline='') as f:
     reader = csv.DictReader(f)
@@ -28,7 +33,7 @@ with open(SCORES_CSV, "w", newline="") as f:
     writer.writerow(SCORES_HEADER)
 
     for image_path, detections in detections_by_image.items():
-        # Example: aggregate features for regression (customize as needed)
+        # Aggregate detection features for regression
         features = []
         for det in detections:
             # Use detection features relevant for regression
@@ -40,10 +45,13 @@ with open(SCORES_CSV, "w", newline="") as f:
                 float(det["ymax"]),
                 int(det["class"])
             ])
-        # Predict proxy-paser score
-        score = regressor.predict([features])[0]
-
-        # Use metadata from first detection (assumes all detections for image share metadata)
+        try:
+            # Predict proxy PASER score for this image
+            score = regressor.predict([features])[0]
+        except Exception as e:
+            print(f"Error predicting PASER score for {image_path}: {e}")
+            continue
+        # Use metadata from first detection (all detections for image share metadata)
         meta = detections[0]
         writer.writerow([
             meta["segment_id"], meta["u"], meta["v"], meta["k"], meta["index"],

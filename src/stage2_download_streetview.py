@@ -5,7 +5,7 @@ import requests
 from shapely.geometry import LineString
 import osmnx as ox
 import networkx as nx
-from dotenv import load_dotenv  # Add this import
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -36,16 +36,16 @@ if not os.path.exists(METADATA_FILE):
         writer.writerow(CSV_HEADER)
 
 
-def sample_points_on_edge(u, v, k, data, spacing=10):
+def sample_points_on_edge(G, u, v, k, data, spacing=10):
     """
     Samples points along the edge geometry at fixed spacing (in meters).
     Returns a list of shapely Point objects.
     """
     geom = data.get('geometry')
     if not geom:
-        # If no geometry, use a straight line between nodes
-        point_u = (data['x'], data['y'])
-        point_v = (data['x'], data['y'])
+        # If no geometry, use a straight line between node coordinates
+        point_u = (G.nodes[u]['x'], G.nodes[u]['y'])
+        point_v = (G.nodes[v]['x'], G.nodes[v]['y'])
         geom = LineString([point_u, point_v])
     length = geom.length
     if length < spacing:
@@ -91,7 +91,7 @@ def process_graph_and_download(G, sample_spacing=SPACING_METERS):
         os.makedirs(segment_folder, exist_ok=True)
 
         try:
-            points = sample_points_on_edge(u, v, k, data, spacing=sample_spacing)
+            points = sample_points_on_edge(G, u, v, k, data, spacing=sample_spacing)
         except Exception as e:
             print(f"Failed sampling for edge {segment_id}: {e}")
             continue
@@ -124,6 +124,13 @@ def process_graph_and_download(G, sample_spacing=SPACING_METERS):
                     print(f"Error fetching image for {segment_id} at {lat},{lng}, heading {heading}: {e}")
                     continue
 
-# Example usage (uncomment and provide your own OSMnx graph):
-# G = ox.load_graphml('data/road_network.graphml')
-# process_graph_and_download(G)
+if __name__ == "__main__":
+    import osmnx as ox
+    # Load the road network graph
+    graph_path = os.path.join("data", "road_network.graphml")
+    if not os.path.exists(graph_path):
+        print(f"GraphML file not found at {graph_path}. Run stage1 to generate it.")
+    else:
+        G = ox.load_graphml(graph_path)
+        process_graph_and_download(G)
+        print("Street View image download and metadata collection complete.")

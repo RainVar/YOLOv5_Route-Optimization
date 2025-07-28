@@ -19,6 +19,8 @@ IMAGE_DIR = os.path.join("data", "road_images")        # Directory to store imag
 METADATA_FILE = os.path.join("data", "image_metadata.csv")  # CSV to store image metadata
 SPACING_METERS = 10              # Distance between sampled points on each edge
 HEADINGS = [0]                   # List of headings (can be [0, 90, 180, 270] for more coverage)
+PITCH = -20                      # Camera pitch for pavement assessment (negative looks downward)
+OVERWRITE = False                # If True, overwrite existing images
 
 # Ensure the data and image directories exist
 os.makedirs("data", exist_ok=True)
@@ -53,7 +55,7 @@ def sample_points_on_edge(G, u, v, k, data, spacing=10):
     return [geom.interpolate(i * spacing) for i in range(1, int(length // spacing))]
 
 
-def fetch_street_view_image(lat, lng, heading, api_key=API_KEY):
+def fetch_street_view_image(lat, lng, heading, api_key=API_KEY, pitch=PITCH):
     """
     Fetch image bytes from Google Street View Static API for a given lat/lng/heading.
     Returns image bytes if successful, else None.
@@ -64,7 +66,7 @@ def fetch_street_view_image(lat, lng, heading, api_key=API_KEY):
         'location': f'{lat},{lng}',
         'fov': 90,
         'heading': heading,
-        'pitch': 0,
+        'pitch': pitch,
         'key': api_key
     }
     response = requests.get(base_url, params=params)
@@ -103,12 +105,12 @@ def process_graph_and_download(G, sample_spacing=SPACING_METERS):
                 filename = f"{image_id}.jpg"
                 save_path = os.path.join(segment_folder, filename)
 
-                if os.path.exists(save_path):
-                    # Skip if image already exists
+                if os.path.exists(save_path) and not OVERWRITE:
+                    # Skip if image already exists and not overwriting
                     continue
 
                 try:
-                    img_bytes = fetch_street_view_image(lat, lng, heading)
+                    img_bytes = fetch_street_view_image(lat, lng, heading, pitch=PITCH)
                     if img_bytes:
                         save_image(img_bytes, save_path)
                         # Append metadata row

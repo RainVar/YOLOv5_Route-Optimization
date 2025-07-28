@@ -3,32 +3,27 @@ import csv
 import time
 import requests
 from shapely.geometry import LineString
-from io import BytesIO
-from PIL import Image
 import osmnx as ox
 import networkx as nx
 
-# Note: 
-# - replace api key
-# - modify pa ang pitch ug size sa image
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+API_KEY = "YOUR_GOOGLE_API_KEY"  # TODO: Replace with your actual Google API key
+IMAGE_DIR = "road_images"        # Directory to store images
+METADATA_FILE = "image_metadata.csv"  # CSV to store image metadata
+SPACING_METERS = 10              # Distance between sampled points on each edge
+HEADINGS = [0]                   # List of headings (can be [0, 90, 180, 270] for more coverage)
 
-# Config
-API_KEY = "YOUR_GOOGLE_API_KEY" ### atoa key frfr
-IMAGE_DIR = "road_images"
-METADATA_FILE = "image_metadata.csv" ### trace ang images where na belong
-SPACING_METERS = 10
-HEADINGS = [0]  # can be [0, 90, 180, 270] for full coverage
-
-# Ensure folders exist
+# Ensure the image directory exists
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
 # Metadata CSV header
 CSV_HEADER = [
-    "segment_id", "u", "v", "k", "index", "lat", "lng", 
-    "heading", "image_path"
+    "segment_id", "u", "v", "k", "index", "lat", "lng", "heading", "image_path"
 ]
 
-# Initialize metadata file
+# Initialize metadata file if it doesn't exist
 if not os.path.exists(METADATA_FILE):
     with open(METADATA_FILE, "w", newline="") as f:
         writer = csv.writer(f)
@@ -36,23 +31,27 @@ if not os.path.exists(METADATA_FILE):
 
 
 def sample_points_on_edge(u, v, k, data, spacing=10):
-    """Samples points along the edge geometry at fixed spacing."""
+    """
+    Samples points along the edge geometry at fixed spacing (in meters).
+    Returns a list of shapely Point objects.
+    """
     geom = data.get('geometry')
     if not geom:
-        # Use straight line
+        # If no geometry, use a straight line between nodes
         point_u = (data['x'], data['y'])
         point_v = (data['x'], data['y'])
         geom = LineString([point_u, point_v])
-    
     length = geom.length
     if length < spacing:
         return [geom.interpolate(0.5, normalized=True)]
-    
     return [geom.interpolate(i * spacing) for i in range(1, int(length // spacing))]
 
 
 def fetch_street_view_image(lat, lng, heading, api_key=API_KEY):
-    """Fetch image bytes from Google Street View Static API."""
+    """
+    Fetch image bytes from Google Street View Static API for a given lat/lng/heading.
+    Returns image bytes if successful, else None.
+    """
     base_url = "https://maps.googleapis.com/maps/api/streetview"
     params = {
         'size': '640x640',
@@ -67,13 +66,19 @@ def fetch_street_view_image(lat, lng, heading, api_key=API_KEY):
 
 
 def save_image(image_bytes, save_path):
-    """Save image to disk."""
+    """
+    Save image bytes to disk at the specified path.
+    """
     with open(save_path, 'wb') as f:
         f.write(image_bytes)
 
 
 def process_graph_and_download(G, sample_spacing=SPACING_METERS):
-    """Main function to fetch and save street view images for each edge."""
+    """
+    For each edge in the OSMnx graph G, sample points, download images, and record metadata.
+    Images are stored in road_images/{segment_id}/{index}_{heading}.jpg
+    Metadata is appended to image_metadata.csv
+    """
     for u, v, k, data in G.edges(keys=True, data=True):
         segment_id = f"{u}_{v}_{k}"
         segment_folder = os.path.join(IMAGE_DIR, segment_id)
@@ -93,23 +98,26 @@ def process_graph_and_download(G, sample_spacing=SPACING_METERS):
                 save_path = os.path.join(segment_folder, filename)
 
                 if os.path.exists(save_path):
-                    continue  # skip if already exists
+                    # Skip if image already exists
+                    continue
 
                 try:
                     img_bytes = fetch_street_view_image(lat, lng, heading)
                     if img_bytes:
                         save_image(img_bytes, save_path)
-
-                        # Append to metadata
+                        # Append metadata row
                         with open(METADATA_FILE, "a", newline="") as f:
                             writer = csv.writer(f)
                             writer.writerow([
-                                segment_id, u, v, k, i, lat, lng,
-                                heading, save_path
+                                segment_id, u, v, k, i, lat, lng, heading, save_path
                             ])
-                        time.sleep(0.1)  # slight delay to avoid rate limits
+                        time.sleep(0.1)  # Delay to avoid API rate limits
                     else:
-                        print(f"Image not found at {lat}, {lng}")
+                        print(f"Image not found at {lat}, {lng}, heading {heading}")
                 except Exception as e:
-                    print(f"Error fetching image for {segment_id} at {lat},{lng}: {e}")
+                    print(f"Error fetching image for {segment_id} at {lat},{lng}, heading {heading}: {e}")
                     continue
+
+# Example usage (uncomment and provide your own OSMnx graph):
+# G = ox.load_graphml('data/road_network.graphml')
+# process_graph_and_download(G)

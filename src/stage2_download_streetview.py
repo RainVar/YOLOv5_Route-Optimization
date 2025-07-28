@@ -5,17 +5,23 @@ import requests
 from shapely.geometry import LineString
 import osmnx as ox
 import networkx as nx
+from dotenv import load_dotenv  # Add this import
+
+# Load environment variables from .env file
+load_dotenv()
 
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-API_KEY = "YOUR_GOOGLE_API_KEY"  # TODO: Replace with your actual Google API key
-IMAGE_DIR = "road_images"        # Directory to store images
-METADATA_FILE = "image_metadata.csv"  # CSV to store image metadata
+# The .env file should contain a line: GOOGLE_API_KEY=your_actual_key_here
+API_KEY = os.getenv("GOOGLE_API_KEY")
+IMAGE_DIR = os.path.join("data", "road_images")        # Directory to store images
+METADATA_FILE = os.path.join("data", "image_metadata.csv")  # CSV to store image metadata
 SPACING_METERS = 10              # Distance between sampled points on each edge
 HEADINGS = [0]                   # List of headings (can be [0, 90, 180, 270] for more coverage)
 
-# Ensure the image directory exists
+# Ensure the data and image directories exist
+os.makedirs("data", exist_ok=True)
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
 # Metadata CSV header

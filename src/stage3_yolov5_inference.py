@@ -6,8 +6,8 @@ from pathlib import Path
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-MODEL_PATH = "models/best.pt"           # Path to YOLOv5 model
-IMAGE_METADATA = "image_metadata.csv"   # Metadata CSV from image download stage
+MODEL_PATH = "../models/best.pt"           # Path to YOLOv5 model
+IMAGE_METADATA = "../data/image_metadata.csv"   # Metadata CSV from image download stage
 DETECTIONS_CSV = "detections.csv"       # Output CSV for detections
 
 # Load YOLOv5 model (from torch hub)
@@ -29,12 +29,14 @@ with open(DETECTIONS_CSV, "w", newline="") as f:
 
     for row in image_rows:
         image_path = row["image_path"]
-        if not os.path.exists(image_path):
-            # Skip if image file does not exist
+        # Convert to absolute path relative to project root
+        abs_image_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", image_path.replace("\\", os.sep)))
+        if not os.path.exists(abs_image_path):
+            print(f"Image not found: {abs_image_path}")
             continue
         try:
             # Run YOLOv5 inference
-            results = model(image_path)
+            results = model(abs_image_path)
             detections = results.xyxy[0].cpu().numpy()  # [xmin, ymin, xmax, ymax, conf, cls]
             for det in detections:
                 xmin, ymin, xmax, ymax, conf, cls = det
@@ -44,5 +46,5 @@ with open(DETECTIONS_CSV, "w", newline="") as f:
                     int(cls), float(conf), float(xmin), float(ymin), float(xmax), float(ymax)
                 ])
         except Exception as e:
-            print(f"Error running YOLOv5 on {image_path}: {e}")
+            print(f"Error running YOLOv5 on {abs_image_path}: {e}")
             continue

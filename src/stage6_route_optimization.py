@@ -48,25 +48,6 @@ def load_road_network_with_paser(graph_path: str) -> nx.MultiDiGraph:
     except Exception as e:
         raise Exception(f"Error loading graph: {e}")
 
-def prepare_paser_scores(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
-    """
-    Prepare proxy PASER scores for route optimization.
-    PASER scale: 1-10 (1=very poor, 10=excellent)
-    For optimization, we'll invert the scores so lower is better (higher cost).
-    """
-    print("Preparing proxy PASER scores for optimization...")
-    
-    for u, v, k, data in graph.edges(keys=True, data=True):
-        paser_score = data.get('paser_score', 5.0)  # Default to fair condition
-        
-        # Invert PASER score for optimization (lower PASER = higher cost)
-        # PASER 1 (very poor) -> inverted = 10, PASER 10 (excellent) -> inverted = 1
-        inverted_paser = 11 - paser_score
-        data['inverted_paser'] = inverted_paser
-    
-    print("Prepared proxy PASER scores for optimization")
-    return graph
-
 def calculate_elevation_gain(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
     """
     Calculate elevation gain for each edge, considering only uphill segments.
@@ -106,9 +87,22 @@ def normalize_edge_attributes(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
     distance_values = []
     
     for u, v, k, data in graph.edges(keys=True, data=True):
-        paser_values.append(data.get('inverted_paser', 6.0))  # Default inverted PASER = 6 (fair)
+        # Convert inverted PASER to float to handle string values from GraphML
+        inverted_paser = data.get('inverted_paser', 6.0)
+        try:
+            inverted_paser = float(inverted_paser)
+        except (TypeError, ValueError):
+            inverted_paser = 6.0  # Default inverted PASER = 6 (fair)
+        
+        paser_values.append(inverted_paser)
         elev_gain_values.append(data.get('elevation_gain', 0.0))
-        distance_values.append(data.get('length', data.get('distance', 0.0)))
+        # Handle both 'length' and 'distance' attributes, convert to float
+        distance = data.get('length', data.get('distance', 0.0))
+        try:
+            distance = float(distance)
+        except (TypeError, ValueError):
+            distance = 0.0
+        distance_values.append(distance)
     
     # Calculate min and max values
     min_paser, max_paser = min(paser_values), max(paser_values)
@@ -122,8 +116,20 @@ def normalize_edge_attributes(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
     # Normalize values for each edge
     for u, v, k, data in graph.edges(keys=True, data=True):
         inverted_paser = data.get('inverted_paser', 6.0)
+        # Convert to float to handle string values from GraphML
+        try:
+            inverted_paser = float(inverted_paser)
+        except (TypeError, ValueError):
+            inverted_paser = 6.0
+            
         elev_gain = data.get('elevation_gain', 0.0)
         distance = data.get('length', data.get('distance', 0.0))
+        
+        # Convert to float to handle string values
+        try:
+            distance = float(distance)
+        except (TypeError, ValueError):
+            distance = 0.0
         
         # Min-Max normalization
         # Inverted PASER: normalize to [0,1] where 0=excellent, 1=worst
@@ -232,9 +238,24 @@ def analyze_route_composition(graph: nx.MultiDiGraph, path: List[str]) -> dict:
             edge_data = graph[u][v][0]
         
         if edge_data:
-            total_distance += edge_data.get('length', edge_data.get('distance', 0.0))
+            # Convert distance to float to handle string values
+            distance = edge_data.get('length', edge_data.get('distance', 0.0))
+            try:
+                distance = float(distance)
+            except (TypeError, ValueError):
+                distance = 0.0
+            
+            total_distance += distance
             total_elevation_gain += edge_data.get('elevation_gain', 0.0)
-            paser_scores.append(edge_data.get('paser_score', 5.0))
+            
+            # Convert PASER score to float
+            paser_score = edge_data.get('paser_score', 5.0)
+            try:
+                paser_score = float(paser_score)
+            except (TypeError, ValueError):
+                paser_score = 5.0
+            
+            paser_scores.append(paser_score)
             composite_weights.append(edge_data.get('composite_weight', 0.0))
     
     analysis = {
@@ -280,11 +301,8 @@ def optimize_cycling_route():
     print("=== Stage 6: Route Optimization using Modified Dijkstra's Algorithm ===")
     
     try:
-        # Load road network with PASER scores
+        # Load road network with PASER scores (including inverted scores from Stage 5)
         graph = load_road_network_with_paser(UPDATED_NETWORK_PATH)
-        
-        # Prepare proxy PASER scores for optimization
-        graph = prepare_paser_scores(graph)
         
         # Calculate elevation gain for edges
         graph = calculate_elevation_gain(graph)

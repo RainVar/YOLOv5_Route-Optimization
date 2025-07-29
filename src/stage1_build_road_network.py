@@ -2,7 +2,7 @@
 Stage 1: Build Road Network
 ---------------------------
 Downloads and processes a road network graph from OpenStreetMap using OSMnx.
-Adds speed, travel time, and (optionally) elevation data from an SRTM raster.
+Adds speed, travel time, and elevation data from an SRTM raster.
 Ensures bidirectionality and computes elevation gain for each edge.
 
 Configuration is set via constants at the top of the script.
@@ -10,6 +10,8 @@ Configuration is set via constants at the top of the script.
 
 import os
 import osmnx as ox
+import requests
+from dotenv import load_dotenv
 
 # -----------------------------
 # CONFIGURATION
@@ -19,20 +21,42 @@ DIST = 200                              # Distance in meters for graph radius
 SRTM_PATH = 'data/srtm.tif'             # Path to SRTM raster for elevation
 OUTPUT_PATH = os.path.join('data', 'road_network.graphml')  # Output GraphML file
 
+load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+
+def fetch_elevations_google(coords, api_key):
+    """
+    Fetch elevations for a list of (lat, lon) tuples using Google Elevation API.
+    Returns a list of elevations (meters).
+    """
+    elevations = []
+    url = "https://maps.googleapis.com/maps/api/elevation/json"
+    # Google API allows up to 512 locations per request
+    BATCH_SIZE = 100  # Stay well below the limit
+    for i in range(0, len(coords), BATCH_SIZE):
+        batch = coords[i:i+BATCH_SIZE]
+        locations = "|".join([f"{lat},{lon}" for lat, lon in batch])
+        params = {"locations": locations, "key": api_key}
+        resp = requests.get(url, params=params)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("status") == "OK":
+                elevations.extend([result["elevation"] for result in data["results"]])
+            else:
+                print(f"Google Elevation API error: {data.get('status')}")
+                elevations.extend([0] * len(batch))
+        else:
+            print(f"HTTP error from Google Elevation API: {resp.status_code}")
+            elevations.extend([0] * len(batch))
+    return elevations
+
 
 def build_road_network(center_point, dist=800, srtm_path=None):
     """
     Downloads and builds a road network graph for a given center point and distance.
-    Adds edge speeds, travel times, and (optionally) elevation data from SRTM raster.
+    Adds edge speeds, travel times, and elevation data from Google Elevation API.
     Ensures bidirectionality and computes elevation gain for each edge.
-
-    Args:
-        center_point (tuple): (latitude, longitude) of the center.
-        dist (int): Distance in meters for the graph radius.
-        srtm_path (str or None): Path to SRTM raster for elevation, or None to skip.
-
-    Returns:
-        networkx.MultiDiGraph: The processed road network graph, or None on failure.
     """
     print(f"Building road network for point: {center_point} with dist={dist}m")
     try:
@@ -53,16 +77,13 @@ def build_road_network(center_point, dist=800, srtm_path=None):
     graph = ox.add_edge_travel_times(graph)
     print("Added edge speeds and travel times.")
 
-    # Add elevation from SRTM raster if available
-    if srtm_path and os.path.exists(srtm_path):
-        try:
-            print("Adding elevation using SRTM raster...")
-            graph = ox.elevation.add_node_elevations_raster(graph, filepath=srtm_path, cpus=1)
-            print("Successfully added elevation data to nodes.")
-        except Exception as e:
-            print(f"Error loading elevation: {e}")
-    else:
-        print(f"Elevation raster not found at {srtm_path}. Skipping elevation.")
+    # Add elevation from Google Elevation API
+    print("Adding elevation using Google Elevation API...")
+    node_coords = [(data['y'], data['x']) for node, data in graph.nodes(data=True)]
+    elevations = fetch_elevations_google(node_coords, GOOGLE_API_KEY)
+    for (node, data), elev in zip(graph.nodes(data=True), elevations):
+        data['elevation'] = elev
+    print("Successfully added elevation data to nodes.")
 
     # Make graph bidirectional manually and compute elevation gain
     edges_to_add = []

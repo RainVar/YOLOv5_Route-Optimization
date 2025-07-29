@@ -54,6 +54,7 @@ def update_graph_with_paser(graph, paser_scores):
     """
     Update the graph with PASER scores as edge attributes.
     Handles both string and integer node IDs.
+    Also stores inverted PASER scores for route optimization.
     """
     print("Updating graph edges with PASER scores...")
     updated_edges = 0
@@ -75,10 +76,14 @@ def update_graph_with_paser(graph, paser_scores):
         
         if paser_score is not None:
             data['paser_score'] = paser_score
+            # Store inverted PASER score for optimization (lower PASER = higher cost)
+            # PASER 1 (very poor) -> inverted = 10, PASER 10 (excellent) -> inverted = 1
+            data['inverted_paser'] = 11 - paser_score
             updated_edges += 1
         else:
             # Default PASER score for edges without data (neutral/good condition)
             data['paser_score'] = 5.0  # Middle score (1-10 scale, 5 = fair condition)
+            data['inverted_paser'] = 11 - 5.0  # Inverted default score
     
     print(f"Updated {updated_edges}/{total_edges} edges with PASER scores")
     print(f"Remaining {total_edges - updated_edges} edges assigned default score of 5.0")
@@ -159,13 +164,17 @@ def update_road_network_with_paser():
         
         # Print summary statistics
         paser_scores_list = [data.get('paser_score', 5.0) for u, v, k, data in graph.edges(keys=True, data=True)]
+        inverted_paser_scores_list = [data.get('inverted_paser', 6.0) for u, v, k, data in graph.edges(keys=True, data=True)]
         avg_paser = sum(paser_scores_list) / len(paser_scores_list)
         min_paser = min(paser_scores_list)
         max_paser = max(paser_scores_list)
+        avg_inverted_paser = sum(inverted_paser_scores_list) / len(inverted_paser_scores_list)
+        min_inverted_paser = min(inverted_paser_scores_list)
+        max_inverted_paser = max(inverted_paser_scores_list)
         
         print(f"\nPASER Score Statistics:")
-        print(f"Average: {avg_paser:.2f}")
-        print(f"Range: {min_paser:.2f} - {max_paser:.2f}")
+        print(f"Original PASER - Average: {avg_paser:.2f}, Range: {min_paser:.2f} - {max_paser:.2f}")
+        print(f"Inverted PASER - Average: {avg_inverted_paser:.2f}, Range: {min_inverted_paser:.2f} - {max_inverted_paser:.2f}")
         print(f"Total edges: {len(paser_scores_list)}")
         
     except Exception as e:

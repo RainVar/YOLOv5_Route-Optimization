@@ -6,9 +6,9 @@ from pathlib import Path
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-MODEL_PATH = "../models/best.pt"           # Path to YOLOv5 model
-IMAGE_METADATA = "../data/image_metadata.csv"   # Metadata CSV from image download stage
-DETECTIONS_CSV = "detections.csv"       # Output CSV for detections
+MODEL_PATH = "models/best.pt"           # Path to YOLOv5 model
+IMAGE_METADATA = "data/image_metadata.csv"   # Metadata CSV from image download stage
+DETECTIONS_CSV = "data/detections.csv"       # Output CSV for detections
 
 # Load YOLOv5 model (from torch hub)
 model = torch.hub.load('ultralytics/yolov5', 'custom', path=MODEL_PATH, force_reload=True)

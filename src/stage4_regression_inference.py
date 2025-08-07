@@ -5,9 +5,9 @@ import pandas as pd
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-REGRESSION_MODEL_PATH = "models/paser_regressor.joblib"  # Path to regression model
-DETECTIONS_CSV = "data/detections.csv"                        # Input: YOLOv5 detections
-SCORES_CSV = "data/proxy_paser_scores.csv"                    # Output: PASER scores per image
+REGRESSION_MODEL_PATH = "../models/paser_gb_regressor.joblib"  # Path to regression model
+DETECTIONS_CSV = "../data/detections.csv"                        # Input: YOLOv5 detections
+SCORES_CSV = "../data/proxy_paser_scores_new.csv"                    # Output: PASER scores per image
 
 feature_columns = [
     "Alligator crack_count", "Alligator crack_total_area",

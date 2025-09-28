@@ -1,0 +1,33 @@
+{
+  "route": {
+    "start_node": 1140342717,
+    "end_node": 1140342125,
+    "path": [
+      1140342717,
+      1140342716,
+      1140342783,
+      8318118404,
+      1140342746,
+      8496942435,
+      8318117591,
+      940969330,
+      1140342125
+    ],
+    "total_cost": 0.18258555618136296
+  },
+  "analysis": {
+    "total_distance_m": 363.7117403025116,
+    "total_elevation_gain_m": 0.23427200317381747,
+    "average_paser_score": 3.0025,
+    "average_composite_weight": 0.022823194522670363,
+    "num_segments": 8
+  },
+  "methodology": {
+    "weights": {
+      "alpha_paser": 0.611,
+      "beta_elevation": 0.278,
+      "gamma_distance": 0.111
+    },
+    "method": "ROC-based composite weight with modified Dijkstra algorithm using proxy PASER scores"
+  }
+}

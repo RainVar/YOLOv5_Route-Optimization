@@ -4,7 +4,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-DETECTIONS_CSV = os.path.join(os.path.dirname(__file__), '..', 'detections.csv')
+DETECTIONS_CSV = os.path.join(os.path.dirname(__file__), '..', '../data/detections.csv')
 
 def show_image_with_detections(image_path, detections):
     img = Image.open(image_path)

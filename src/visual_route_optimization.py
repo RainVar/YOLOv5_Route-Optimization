@@ -314,7 +314,7 @@ class RouteOptimizationGUI:
                     self.selected_end = nearest_node
                     self.end_var.set(str(nearest_node))
                     self._update_plot()
-                    self.status_var.set(f"End node selected: {nearest_end}")
+                    self.status_var.set(f"End node selected: {nearest_node}")
                     self._selection_mode = False
                 else:
                     # Both nodes selected, exit selection mode
@@ -379,6 +379,16 @@ class RouteOptimizationGUI:
 
                         print(f"✅ {algo_key} path found with {len(path)} nodes")
 
+                        # Debug: Show path differences
+                        if algo_key != "shortest":
+                            # Compare with the stored shortest path
+                            if 'shortest' in self.current_paths:
+                                shortest_path = self.current_paths['shortest']
+                                if path != shortest_path:
+                                    print(f"   🎯 {algo_key} path differs from shortest path!")
+                                else:
+                                    print(f"   ⚠️ {algo_key} path is identical to shortest path")
+
                     except Exception as e:
                         print(f"❌ {algo_key} algorithm failed: {e}")
                         messagebox.showerror("Error", f"{algo_key} algorithm failed: {e}")
@@ -393,21 +403,54 @@ class RouteOptimizationGUI:
 
     def _compare_routes(self) -> None:
         """Compare the found routes and show analysis"""
+        print(f"Debug: Comparing routes. Current paths: {list(self.current_paths.keys())}")
+
         if not self.current_paths:
             messagebox.showwarning("Warning", "No paths to compare. Please find paths first.")
             return
 
-        # Analyze each path
-        self.route_analyses = {}
-        for algo_key, path in self.current_paths.items():
-            analysis = self._analyze_route(path, f"{algo_key.title()} Path")
-            self.route_analyses[algo_key] = analysis
+        if len(self.current_paths) < 2:
+            messagebox.showwarning("Warning", "Need at least 2 paths to compare. Please ensure multiple algorithms found paths.")
+            return
 
-        # Update metrics display
-        self._update_metrics_display()
+        try:
+            self.status_var.set("Analyzing routes for comparison...")
 
-        # Show comparison dialog
-        self._show_comparison_dialog()
+            # Analyze each path
+            self.route_analyses = {}
+            successful_analyses = 0
+
+            for algo_key, path in self.current_paths.items():
+                if path and len(path) > 1:
+                    try:
+                        print(f"Debug: Analyzing {algo_key} path with {len(path)} nodes")
+                        analysis = self._analyze_route(path, f"{algo_key.title()} Path")
+                        self.route_analyses[algo_key] = analysis
+                        successful_analyses += 1
+                        print(f"Debug: Successfully analyzed {algo_key} path")
+                    except Exception as e:
+                        print(f"Debug: Failed to analyze {algo_key} path: {e}")
+                        messagebox.showwarning("Warning", f"Could not analyze {algo_key} path: {e}")
+
+            if successful_analyses == 0:
+                messagebox.showerror("Error", "Could not analyze any paths for comparison.")
+                return
+
+            print(f"Debug: Successfully analyzed {successful_analyses} routes")
+
+            # Update metrics display
+            self._update_metrics_display()
+
+            # Show comparison dialog
+            self._show_comparison_dialog()
+
+            self.status_var.set(f"Comparison complete! Analyzed {successful_analyses} routes")
+
+        except Exception as e:
+            print(f"Debug: Comparison failed: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Failed to compare routes: {e}")
 
     def _analyze_route(self, path: List[int], route_name: str) -> Dict:
         """Analyze a route path"""
@@ -434,15 +477,41 @@ class RouteOptimizationGUI:
                 edge_attrs = edge_data[edge_key]
 
                 # Distance
-                distance = edge_attrs.get('length', 0)
+                distance_raw = edge_attrs.get('length', 0)
+                try:
+                    # Handle case where distance might be stored as string
+                    distance = float(distance_raw) if distance_raw != 0 else 0
+                except (ValueError, TypeError):
+                    distance = 0
+                    print(f"Warning: Invalid distance value '{distance_raw}' for edge {start_node}-{end_node}")
+
                 analysis["total_distance_m"] += distance
 
                 # Elevation
-                elevation = edge_attrs.get('elevation_gain', 0)
+                elevation_raw = edge_attrs.get('elevation_gain', 0)
+                try:
+                    # Handle case where elevation might be stored as string
+                    elevation = float(elevation_raw) if elevation_raw != 0 else 0
+                except (ValueError, TypeError):
+                    elevation = 0
+                    print(f"Warning: Invalid elevation value '{elevation_raw}' for edge {start_node}-{end_node}")
+
                 analysis["elevation_gain_m"] += abs(elevation)
 
                 # PASER score
-                paser_score = edge_attrs.get('paser_score', 5.0)
+                paser_raw = edge_attrs.get('paser_score', 5.0)
+                try:
+                    # Handle case where paser_score might be stored as string
+                    if isinstance(paser_raw, str):
+                        # Remove any whitespace and potential invisible characters
+                        clean_paser = paser_raw.strip().replace('\x00', '').replace('\ufeff', '')
+                        paser_score = float(clean_paser) if clean_paser != '' else 5.0
+                    else:
+                        paser_score = float(paser_raw) if paser_raw != 0 else 5.0
+                except (ValueError, TypeError):
+                    paser_score = 5.0  # Default neutral PASER score
+                    print(f"Warning: Invalid paser_score value '{paser_raw}' for edge {start_node}-{end_node}")
+
                 analysis["paser_scores"].append(paser_score)
 
                 # Segment details
@@ -507,47 +576,94 @@ class RouteOptimizationGUI:
             messagebox.showinfo("Info", "Need at least 2 routes to compare")
             return
 
-        # Create comparison window
-        comp_window = tk.Toplevel(self.root)
-        comp_window.title("Route Comparison")
-        comp_window.geometry("800x600")
+        try:
+            # Create comparison window
+            comp_window = tk.Toplevel(self.root)
+            comp_window.title("🚴 Route Comparison Results")
+            comp_window.geometry("900x700")
+            comp_window.lift()  # Bring window to front
+            comp_window.focus_force()  # Force focus
+            comp_window.grab_set()  # Make modal
 
-        # Create treeview for comparison
-        columns = ('Route', 'Distance (km)', 'Elevation (m)', 'Avg PASER', 'Efficiency')
-        tree = ttk.Treeview(comp_window, columns=columns, show='headings', height=10)
+            # Add window close handler
+            def on_closing():
+                comp_window.grab_release()
+                comp_window.destroy()
 
-        for col in columns:
-            tree.heading(col, text=col)
-            tree.column(col, width=150, anchor=tk.CENTER)
+            comp_window.protocol("WM_DELETE_WINDOW", on_closing)
 
-        # Add data
-        for algo_key, analysis in self.route_analyses.items():
-            color = self.colors.get(algo_key, 'black')
-            distance_km = analysis['total_distance_m'] / 1000
-            elevation = analysis['elevation_gain_m']
-            avg_paser = analysis.get('average_paser_score', 0)
-            efficiency = analysis.get('elevation_per_km', 0)
+            # Title
+            title_label = ttk.Label(comp_window, text="🚴 Route Comparison Analysis",
+                                   font=("Arial", 16, "bold"))
+            title_label.pack(pady=(20, 10))
 
-            tree.insert('', tk.END, values=(
-                analysis['route_name'],
-                f"{distance_km:.2f}",
-                f"{elevation:.1f}",
-                f"{avg_paser:.2f}",
-                f"{efficiency:.1f}"
-            ), tags=(f'color_{color}',))
+            # Create main frame
+            main_frame = ttk.Frame(comp_window)
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
-        tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            # Create treeview for comparison
+            columns = ('Route', 'Distance (km)', 'Elevation (m)', 'Avg PASER', 'Efficiency', 'Best Segment', 'Worst Segment')
+            tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=8)
 
-        # Configure tags for colors
-        for color in ['blue', 'green', 'red']:
-            tree.tag_configure(f'color_{color}', foreground=color)
+            for col in columns:
+                tree.heading(col, text=col)
+                tree.column(col, width=120, anchor=tk.CENTER)
 
-        # Add summary
-        summary_frame = ttk.Frame(comp_window)
-        summary_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+            # Add data
+            for algo_key, analysis in self.route_analyses.items():
+                color = self.colors.get(algo_key, 'black')
+                distance_km = analysis['total_distance_m'] / 1000
+                elevation = analysis['elevation_gain_m']
+                avg_paser = analysis.get('average_paser_score', 0)
+                efficiency = analysis.get('elevation_per_km', 0)
+                best_segment = analysis.get('max_paser_score', 0)
+                worst_segment = analysis.get('min_paser_score', 0)
 
-        ttk.Label(summary_frame, text="💡 Lower elevation and higher PASER scores indicate better cycling routes",
-                 font=("Arial", 9, "italic")).pack()
+                tree.insert('', tk.END, values=(
+                    analysis['route_name'],
+                    f"{distance_km:.2f}",
+                    f"{elevation:.1f}",
+                    f"{avg_paser:.2f}",
+                    f"{efficiency:.1f}",
+                    f"{best_segment:.1f}",
+                    f"{worst_segment:.1f}"
+                ), tags=(f'color_{color}',))
+
+            tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+            # Configure tags for colors
+            for color in ['blue', 'green', 'red']:
+                tree.tag_configure(f'color_{color}', foreground=color)
+
+            # Add summary at bottom
+            summary_frame = ttk.Frame(comp_window)
+            summary_frame.pack(fill=tk.X, padx=20, pady=(10, 20))
+
+            summary_text = tk.Text(summary_frame, height=4, width=80,
+                                  font=("Arial", 10), wrap=tk.WORD)
+            summary_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            summary_text.insert(tk.END, "💡 Analysis Summary:\n\n", "bold")
+            summary_text.insert(tk.END, "• Lower elevation and higher PASER scores indicate better cycling routes\n")
+            summary_text.insert(tk.END, "• Green path (Pavement Optimized) typically has the best road surface quality\n")
+            summary_text.insert(tk.END, "• Red path (Multi-Criteria) balances distance, elevation, and pavement quality\n")
+            summary_text.insert(tk.END, "• Blue path (Shortest) is fastest but may have poorer road conditions")
+
+            summary_text.tag_configure("bold", font=("Arial", 10, "bold"))
+            summary_text.config(state=tk.DISABLED)
+
+            # Close button
+            close_btn = ttk.Button(comp_window, text="Close Comparison",
+                                  command=on_closing)
+            close_btn.pack(pady=(0, 20))
+
+            print(f"Debug: Comparison dialog created with {len(self.route_analyses)} routes")
+
+        except Exception as e:
+            print(f"Debug: Failed to create comparison dialog: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Failed to show comparison: {e}")
 
     def _clear_paths(self) -> None:
         """Clear all drawn paths from the plot"""
@@ -714,26 +830,95 @@ class RouteOptimizationGUI:
     def _pavement_optimized_path(self, start: int, end: int) -> List[int]:
         """Path optimized for pavement quality"""
         try:
-            # Check if edges have inverted_paser attribute
-            has_inverted_paser = any(
-                'inverted_paser' in data
-                for u, v, k, data in self.graph.edges(keys=True, data=True)
-            )
+            # Check if edges have usable inverted_paser attribute (numeric values)
+            has_usable_inverted_paser = False
+            sample_inverted_values = []
 
-            if not has_inverted_paser:
+            for u, v, k, data in self.graph.edges(keys=True, data=True):
+                if 'inverted_paser' in data:
+                    try:
+                        inverted_val = data['inverted_paser']
+                        # Test conversion with more robust cleaning
+                        if isinstance(inverted_val, str):
+                            clean_val = inverted_val.strip().replace('\x00', '').replace('\ufeff', '').replace('\u200b', '').replace('\u200c', '').replace('\u200d', '')
+                            if clean_val:
+                                float(clean_val)
+                        else:
+                            float(inverted_val)
+
+                        has_usable_inverted_paser = True
+                        sample_inverted_values.append((u, v, inverted_val))
+                        if len(sample_inverted_values) >= 3:  # Just need a few samples
+                            break
+                    except (ValueError, TypeError, AttributeError):
+                        print(f"Debug: Found unusable inverted_paser value '{inverted_val}' for edge {u}-{v}")
+                        continue
+
+            print(f"Debug: Found usable inverted_paser: {has_usable_inverted_paser}")
+            if sample_inverted_values:
+                print(f"Debug: Sample inverted_paser values: {sample_inverted_values[:3]}")
+
+            if not has_usable_inverted_paser:
                 # Fall back to using paser_score (invert it on the fly)
+                print(f"Debug: No usable inverted_paser found, using paser_score fallback")
                 def get_pavement_weight(u, v, data):
-                    paser_score = data.get('paser_score', 5.0)
-                    # Invert PASER score (lower PASER = higher cost = worse pavement)
-                    return 10 - paser_score  # Higher return value = worse pavement
+                    paser_raw = data.get('paser_score', 5.0)
+                    try:
+                        # Handle case where paser_score might be stored as string
+                        if isinstance(paser_raw, str):
+                            # Remove any whitespace and potential invisible characters
+                            clean_paser = paser_raw.strip().replace('\x00', '').replace('\ufeff', '')
+                            paser_score = float(clean_paser) if clean_paser != '' else 5.0
+                        else:
+                            paser_score = float(paser_raw) if paser_raw != 0 else 5.0
+                    except (ValueError, TypeError) as e:
+                        print(f"Debug: Failed to convert paser_score '{repr(paser_raw)}' for edge {u}-{v}: {e}")
+                        paser_score = 5.0  # Default neutral PASER score
 
-                path = nx.shortest_path(
-                    self.graph, source=start, target=end, weight=get_pavement_weight
-                )
+                    # Invert PASER score (lower PASER = higher cost = worse pavement)
+                    return max(0.1, 10 - paser_score)  # Higher return value = worse pavement
+
+                try:
+                    path = nx.shortest_path(
+                        self.graph, source=start, target=end, weight=get_pavement_weight
+                    )
+                    print(f"Debug: Pavement algorithm succeeded using paser_score fallback")
+                except Exception as e:
+                    print(f"Debug: Pavement algorithm failed even with fallback: {e}")
+                    # Last resort: fall back to distance
+                    path = self._shortest_path_algorithm(start, end)
             else:
-                path = nx.shortest_path(
-                    self.graph, source=start, target=end, weight='inverted_paser'
-                )
+                print(f"Debug: Using inverted_paser for pavement optimization")
+                try:
+                    path = nx.shortest_path(
+                        self.graph, source=start, target=end, weight='inverted_paser'
+                    )
+                    print(f"Debug: Pavement algorithm succeeded using inverted_paser")
+                except Exception as e:
+                    print(f"Debug: Pavement algorithm failed with inverted_paser: {e}")
+                    print(f"Debug: Error type: {type(e).__name__}")
+                    # Fall back to paser_score method
+                    try:
+                        def get_pavement_weight(u, v, data):
+                            paser_raw = data.get('paser_score', 5.0)
+                            try:
+                                if isinstance(paser_raw, str):
+                                    clean_paser = paser_raw.strip().replace('\x00', '').replace('\ufeff', '').replace('\u200b', '').replace('\u200c', '').replace('\u200d', '')
+                                    paser_score = float(clean_paser) if clean_paser != '' else 5.0
+                                else:
+                                    paser_score = float(paser_raw) if paser_raw != 0 else 5.0
+                            except (ValueError, TypeError):
+                                paser_score = 5.0
+
+                            return max(0.1, 10 - paser_score)
+
+                        path = nx.shortest_path(
+                            self.graph, source=start, target=end, weight=get_pavement_weight
+                        )
+                        print(f"Debug: Pavement algorithm succeeded with paser_score fallback")
+                    except Exception as e2:
+                        print(f"Debug: Pavement algorithm failed even with fallback: {e2}")
+                        path = self._shortest_path_algorithm(start, end)
             return path
         except nx.NetworkXNoPath:
             raise ValueError("No path found between nodes")
@@ -746,53 +931,111 @@ class RouteOptimizationGUI:
                 raise Exception(f"Pavement optimization failed: {e}")
 
     def _multi_criteria_path(self, start: int, end: int) -> List[int]:
-        """Multi-criteria path optimization"""
+        """Multi-criteria path optimization using proper min-max normalization and ROC weights"""
         try:
-            # Create composite weight for each edge
+            # First pass: Calculate min/max values for normalization
+            print(f"Debug: Calculating normalization ranges for {len(list(self.graph.edges()))} edges")
+
+            # Calculate min/max for each metric
+            pci_values = []
+            elevation_gains = []
+            distances = []
+
+            for u, v, k, data in self.graph.edges(keys=True, data=True):
+                # PCI values (proxy PASER)
+                if 'inverted_paser' in data:  # Use inverted_paser as PCI equivalent
+                    try:
+                        pci_val = float(data['inverted_paser'])
+                        pci_values.append(pci_val)
+                    except:
+                        pass
+
+                # Elevation gains
+                if 'elevation_gain' in data:
+                    try:
+                        elev_val = float(data['elevation_gain'])
+                        if elev_val > 0:  # Only positive elevation gains (uphill)
+                            elevation_gains.append(elev_val)
+                    except:
+                        pass
+
+                # Distances
+                if 'length' in data:
+                    try:
+                        dist_val = float(data['length'])
+                        if dist_val > 0:
+                            distances.append(dist_val)
+                    except:
+                        pass
+
+            # Calculate normalization ranges
+            pci_min, pci_max = min(pci_values), max(pci_values) if pci_values else (3.0, 7.0)
+            elev_min, elev_max = min(elevation_gains), max(elevation_gains) if elevation_gains else (0, 1)
+            dist_min, dist_max = min(distances), max(distances) if distances else (1, 1000)
+
+            print(f"Debug: Normalization ranges - PCI: {pci_min:.2f}-{pci_max:.2f}, Elev: {elev_min:.2f}-{elev_max:.2f}, Dist: {dist_min:.2f}-{dist_max:.2f}")
+
+            # ROC weights from documentation
+            alpha = 0.611  # Pavement quality (61.1%)
+            beta = 0.278   # Elevation (27.8%)
+            gamma = 0.111  # Distance (11.1%)
+
+            # Second pass: Calculate composite weights for each edge
+            successful_calculations = 0
             for u, v, k, data in self.graph.edges(keys=True, data=True):
                 try:
-                    # Get attributes with safe defaults
-                    distance = data.get('length', 100)  # Default 100m if missing
-                    elevation_gain = data.get('elevation_gain', 0)
+                    # Get raw values
+                    distance_raw = data.get('length', 100)
+                    elevation_gain_raw = data.get('elevation_gain', 0)
+                    pci_raw = data.get('inverted_paser', 6.0)  # Use inverted_paser as PCI
 
-                    # Handle PASER cost - check both inverted_paser and paser_score
-                    if 'inverted_paser' in data:
-                        paser_cost = data['inverted_paser']
-                    elif 'paser_score' in data:
-                        paser_score = data['paser_score']
-                        # Invert PASER score (lower PASER = higher cost = worse pavement)
-                        paser_cost = max(1.0, 10 - paser_score)  # Ensure positive cost
+                    # Convert to numbers with fallbacks
+                    distance = float(distance_raw) if distance_raw != 0 else 100
+                    elevation_gain = float(elevation_gain_raw) if elevation_gain_raw != 0 else 0
+                    pci = float(pci_raw) if pci_raw != 0 else 6.0
+
+                    # Apply normalization
+                    # PCI: min-max normalization (inverted_paser already represents cost)
+                    if pci_max > pci_min:
+                        norm_pci = (pci - pci_min) / (pci_max - pci_min)
                     else:
-                        paser_cost = 6  # Default neutral cost
+                        norm_pci = 0.5  # Default if no variation
 
-                    # Normalize values to prevent extreme scaling
-                    distance_km = distance / 1000  # Convert to km
-                    elevation = abs(elevation_gain)  # Absolute elevation change
+                    # Elevation: only positive gains, normalized to 0-1
+                    norm_elev = max(0, elevation_gain) / elev_max if elev_max > 0 else 0
 
-                    # Ensure all values are positive and reasonable
-                    distance_km = max(0.01, distance_km)  # Minimum 10m
-                    elevation = max(0, elevation)  # No negative elevation
-                    paser_cost = max(0.1, paser_cost)  # Minimum cost
+                    # Distance: min-max normalization
+                    if dist_max > dist_min:
+                        norm_dist = (distance - dist_min) / (dist_max - dist_min)
+                    else:
+                        norm_dist = distance / dist_max if dist_max > 0 else 0.5
 
-                    # Create composite cost with normalized weights
-                    composite_cost = (
-                        0.1 * distance_km +      # 10% distance
-                        0.1 * elevation +        # 10% elevation
-                        0.8 * paser_cost         # 80% pavement quality
+                    # Calculate composite weight using ROC weights
+                    composite_weight = (
+                        alpha * norm_pci +      # 61.1% pavement quality
+                        beta * norm_elev +      # 27.8% elevation difficulty
+                        gamma * norm_dist       # 11.1% distance
                     )
 
-                    # Ensure composite cost is reasonable
-                    composite_cost = max(0.1, composite_cost)
-                    data['composite_cost'] = composite_cost
+                    # Ensure positive weight
+                    composite_weight = max(0.01, composite_weight)
+
+                    # Store in graph
+                    data['composite_weight'] = composite_weight
+                    successful_calculations += 1
 
                 except Exception as e:
-                    # If calculation fails for this edge, use default cost
-                    data['composite_cost'] = 5.0
-                    print(f"Warning: Could not calculate composite cost for edge {u}-{v}: {e}")
+                    # Fallback: use default weight
+                    data['composite_weight'] = 5.0
+                    print(f"Warning: Could not calculate composite weight for edge {u}-{v}: {e}")
 
+            print(f"Debug: Multi-criteria - successfully calculated weights for {successful_calculations}/{len(list(self.graph.edges()))} edges")
+
+            # Find path using composite weights
             path = nx.shortest_path(
-                self.graph, source=start, target=end, weight='composite_cost'
+                self.graph, source=start, target=end, weight='composite_weight'
             )
+            print(f"Debug: Multi-criteria algorithm succeeded with ROC weighting")
             return path
         except nx.NetworkXNoPath:
             raise ValueError("No path found between nodes")

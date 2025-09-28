@@ -17,9 +17,9 @@ from collections import defaultdict
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-ROAD_NETWORK_PATH = "data/road_network.graphml"       # Input: Road network graph
-PASER_SCORES_CSV = "data/proxy_paser_scores.csv"     # Input: PASER scores per image
-OUTPUT_PATH = "data/updated_road_network.graphml" # Output: Updated graph with PASER scores
+ROAD_NETWORK_PATH = "../data/road_network.graphml"       # Input: Road network graph
+PASER_SCORES_CSV = "../data/proxy_paser_scores.csv"     # Input: PASER scores per image
+OUTPUT_PATH = "../data/updated_road_network.graphml" # Output: Updated graph with PASER scores
 
 def load_paser_scores(csv_path):
     """
@@ -81,34 +81,12 @@ def update_graph_with_paser(graph, paser_scores):
             data['inverted_paser'] = 11 - paser_score
             updated_edges += 1
         else:
-            # Default PASER score for edges without data (neutral/good condition)
             data['paser_score'] = 5.0  # Middle score (1-10 scale, 5 = fair condition)
             data['inverted_paser'] = 11 - 5.0  # Inverted default score
     
     print(f"Updated {updated_edges}/{total_edges} edges with PASER scores")
     print(f"Remaining {total_edges - updated_edges} edges assigned default score of 5.0")
     return graph
-
-def calculate_weighted_travel_time(graph):
-    """
-    Calculate weighted travel time based on PASER scores.
-    Lower PASER scores (worse pavement) increase travel time.
-    """
-    print("Calculating weighted travel times based on PASER scores...")
-    
-    for u, v, k, data in graph.edges(keys=True, data=True):
-        base_time = data.get('travel_time', 0)
-        paser_score = data.get('paser_score', 5.0)
-        
-        # Weight factor: worse pavement (lower PASER) increases travel time
-        # PASER scale: 1 (very poor) to 10 (excellent)
-        # Weight factor ranges from 1.5 (poor) to 1.0 (excellent)
-        weight_factor = 2.0 - (paser_score / 10.0)
-        weighted_time = base_time * weight_factor
-        
-        data['weighted_travel_time'] = weighted_time
-    
-    print("Calculated weighted travel times for all edges")
 
 def update_road_network_with_paser():
     """
@@ -146,13 +124,6 @@ def update_road_network_with_paser():
         graph = update_graph_with_paser(graph, paser_scores)
     except Exception as e:
         print(f"Error updating graph with PASER scores: {e}")
-        return
-    
-    # Calculate weighted travel times
-    try:
-        calculate_weighted_travel_time(graph)
-    except Exception as e:
-        print(f"Error calculating weighted travel times: {e}")
         return
     
     # Save the updated graph

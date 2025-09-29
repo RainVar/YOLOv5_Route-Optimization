@@ -50,6 +50,7 @@ class RouteOptimizationGUI:
         self.selected_end = None
         self.current_paths = {}
         self.route_analyses = {}
+        self.path_lines = {}  # Store references to path lines for better management
 
         # Colors for different algorithms
         self.colors = {
@@ -377,6 +378,7 @@ class RouteOptimizationGUI:
         # Clear paths and disable visibility checkboxes
         self.current_paths = {}
         self.route_analyses = {}
+        self.path_lines = {}  # Clear path line references
         for key in self.path_visibility_vars:
             visibility_cb = getattr(self, f"visibility_cb_{key}")
             visibility_cb.configure(state="disabled")
@@ -708,17 +710,31 @@ class RouteOptimizationGUI:
 
     def _clear_paths(self) -> None:
         """Clear all drawn paths from the plot"""
-        # Remove path lines and markers
-        for collection in self.ax.collections[:]:
-            if hasattr(collection, 'get_label') and collection.get_label() in ['path', 'start', 'end']:
-                collection.remove()
-        for patch in self.ax.patches[:]:
-            patch.remove()
+        # Remove all lines that are not the base network
+        lines_to_remove = []
+        for line in self.ax.lines:
+            if hasattr(line, '_path_type'):  # Our custom attribute for path lines
+                lines_to_remove.append(line)
+        
+        for line in lines_to_remove:
+            line.remove()
+        
+        # Also clear any collections with path labels
+        collections_to_remove = []
+        for collection in self.ax.collections:
+            if hasattr(collection, 'get_label'):
+                label = collection.get_label()
+                if label and ('path' in label or label in ['start', 'end']):
+                    collections_to_remove.append(collection)
+        
+        for collection in collections_to_remove:
+            collection.remove()
 
     def _clear_all_paths(self) -> None:
         """Clear all paths and reset selections"""
         self.current_paths = {}
         self.route_analyses = {}
+        self.path_lines = {}  # Clear path line references
         self.selected_start = None
         self.selected_end = None
         self.start_var.set("")
@@ -747,15 +763,20 @@ class RouteOptimizationGUI:
         # Draw start and end nodes
         if self.selected_start and self.selected_start in self.node_positions:
             x, y = self.node_positions[self.selected_start]
-            self.ax.scatter(x, y, c='red', s=100, marker='o', edgecolors='darkred',
-                          linewidth=2, label='start', zorder=10)
+            scatter = self.ax.scatter(x, y, c='red', s=100, marker='o', edgecolors='darkred',
+                          linewidth=2, zorder=10)
+            scatter.set_label('start')
 
         if self.selected_end and self.selected_end in self.node_positions:
             x, y = self.node_positions[self.selected_end]
-            self.ax.scatter(x, y, c='green', s=100, marker='X', edgecolors='darkgreen',
-                          linewidth=2, label='end', zorder=10)
+            scatter = self.ax.scatter(x, y, c='green', s=100, marker='X', edgecolors='darkgreen',
+                          linewidth=2, zorder=10)
+            scatter.set_label('end')
 
-        # Draw paths (only if visible)
+        # Clear stored path line references
+        self.path_lines = {}
+        
+        # Draw paths (only if visible) with unique properties
         for algo_key, path in self.current_paths.items():
             if (path and len(path) > 1 and 
                 algo_key in self.path_visibility_vars and 
@@ -770,9 +791,19 @@ class RouteOptimizationGUI:
 
                 if len(path_coords) > 1:
                     path_coords = np.array(path_coords)
-                    self.ax.plot(path_coords[:, 0], path_coords[:, 1],
-                               color=color, linewidth=3, alpha=0.8,
-                               label=f'path_{algo_key}', zorder=5)
+                    
+                    # Create line with custom attributes for identification
+                    line, = self.ax.plot(path_coords[:, 0], path_coords[:, 1],
+                                       color=color, linewidth=3, alpha=0.8,
+                                       zorder=5 + len(self.current_paths) - list(self.current_paths.keys()).index(algo_key))
+                    
+                    # Add custom attributes to identify this line
+                    line._path_type = algo_key
+                    line._algo_key = algo_key
+                    line.set_label(f'{algo_key}_path')
+                    
+                    # Store reference for management
+                    self.path_lines[algo_key] = line
 
         self.canvas.draw()
 

@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 # CONFIGURATION
 # -----------------------------
 CENTER_POINT = (10.299848, 123.871968)  # (lat, lon) for Tisa, Cebu City
-DIST = 200                              # Distance in meters for graph radius
+DIST = 1000                              # Distance in meters for graph radius
 SRTM_PATH = 'data/srtm.tif'             # Path to SRTM raster for elevation
 OUTPUT_PATH = os.path.join('data', 'road_network.graphml')  # Output GraphML file
 

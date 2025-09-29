@@ -120,6 +120,12 @@ class RouteOptimizationGUI:
         view_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="View", menu=view_menu)
         view_menu.add_command(label="Reset View", command=self._reset_view)
+        view_menu.add_separator()
+        view_menu.add_command(label="Toggle All Paths", command=self._toggle_all_paths)
+        view_menu.add_command(label="Show Only Shortest Path", command=self._show_only_shortest)
+        view_menu.add_command(label="Show Only Pavement Path", command=self._show_only_pavement)
+        view_menu.add_command(label="Show Only Multi-Criteria Path", command=self._show_only_multi_criteria)
+        view_menu.add_separator()
         view_menu.add_command(label="Toggle Node Labels", command=self._toggle_node_labels)
 
         # Help menu
@@ -179,6 +185,7 @@ class RouteOptimizationGUI:
         algo_frame.pack(fill=tk.X, pady=(0, 15))
 
         self.algo_vars = {}
+        self.path_visibility_vars = {}
         algorithms = [
             ("Shortest Path", "shortest", "Distance-based routing"),
             ("Pavement Optimized", "pavement", "Best pavement quality"),
@@ -187,11 +194,29 @@ class RouteOptimizationGUI:
 
         for name, key, desc in algorithms:
             var = tk.BooleanVar(value=True)
+            visibility_var = tk.BooleanVar(value=True)
             self.algo_vars[key] = var
+            self.path_visibility_vars[key] = visibility_var
 
             frame = ttk.Frame(algo_frame)
             frame.pack(fill=tk.X, pady=2)
+            
+            # Algorithm selection checkbox
             ttk.Checkbutton(frame, text=name, variable=var).pack(side=tk.LEFT)
+            
+            # Path visibility toggle (only show if path exists)
+            # Use a closure to capture the current key value
+            def make_visibility_command(algo_key):
+                return lambda: self._on_visibility_toggle(algo_key)
+            
+            visibility_cb = ttk.Checkbutton(frame, text="Show", variable=visibility_var, 
+                                          command=make_visibility_command(key))
+            visibility_cb.pack(side=tk.LEFT, padx=(10, 0))
+            
+            # Store reference for later enabling/disabling
+            setattr(self, f"visibility_cb_{key}", visibility_cb)
+            visibility_cb.configure(state="disabled")  # Initially disabled
+            
             ttk.Label(frame, text=desc, font=("Arial", 8), foreground="gray").pack(side=tk.RIGHT, padx=(10, 0))
 
         # Action buttons
@@ -204,6 +229,8 @@ class RouteOptimizationGUI:
                   command=self._find_paths).pack(fill=tk.X, pady=2)
         ttk.Button(button_frame, text="📊 Compare Routes",
                   command=self._compare_routes).pack(fill=tk.X, pady=2)
+        ttk.Button(button_frame, text="🧹 Clear Paths",
+                  command=self._clear_all_paths).pack(fill=tk.X, pady=2)
         ttk.Button(button_frame, text="🎬 Run Demo",
                   command=self._run_demo).pack(fill=tk.X, pady=2)
 
@@ -346,6 +373,14 @@ class RouteOptimizationGUI:
         self.selected_end = None
         self.start_var.set("")
         self.end_var.set("")
+        
+        # Clear paths and disable visibility checkboxes
+        self.current_paths = {}
+        self.route_analyses = {}
+        for key in self.path_visibility_vars:
+            visibility_cb = getattr(self, f"visibility_cb_{key}")
+            visibility_cb.configure(state="disabled")
+            
         self._clear_paths()
         self._update_plot()
         self.status_var.set("Click on map to select start node...")
@@ -394,6 +429,12 @@ class RouteOptimizationGUI:
                         messagebox.showerror("Error", f"{algo_key} algorithm failed: {e}")
                         import traceback
                         traceback.print_exc()
+
+            # Enable visibility checkboxes for found paths
+            for algo_key in self.current_paths:
+                if self.current_paths[algo_key]:  # Path found
+                    visibility_cb = getattr(self, f"visibility_cb_{algo_key}")
+                    visibility_cb.configure(state="normal")
 
             self._update_plot()
             self.status_var.set("Paths found successfully!")
@@ -674,6 +715,31 @@ class RouteOptimizationGUI:
         for patch in self.ax.patches[:]:
             patch.remove()
 
+    def _clear_all_paths(self) -> None:
+        """Clear all paths and reset selections"""
+        self.current_paths = {}
+        self.route_analyses = {}
+        self.selected_start = None
+        self.selected_end = None
+        self.start_var.set("")
+        self.end_var.set("")
+        
+        # Disable all visibility checkboxes
+        for key in self.path_visibility_vars:
+            visibility_cb = getattr(self, f"visibility_cb_{key}")
+            visibility_cb.configure(state="disabled")
+            self.path_visibility_vars[key].set(True)  # Reset to visible
+        
+        # Clear metrics display
+        self.metrics_text.delete(1.0, tk.END)
+        self.metrics_text.insert(tk.END, "No routes calculated")
+        
+        # Update plot
+        self._clear_paths()
+        self._initialize_plot()
+        
+        self.status_var.set("All paths cleared")
+
     def _update_plot(self) -> None:
         """Update the plot with current selections and paths"""
         self._clear_paths()
@@ -689,9 +755,12 @@ class RouteOptimizationGUI:
             self.ax.scatter(x, y, c='green', s=100, marker='X', edgecolors='darkgreen',
                           linewidth=2, label='end', zorder=10)
 
-        # Draw paths
+        # Draw paths (only if visible)
         for algo_key, path in self.current_paths.items():
-            if path and len(path) > 1:
+            if (path and len(path) > 1 and 
+                algo_key in self.path_visibility_vars and 
+                self.path_visibility_vars[algo_key].get()):
+                
                 color = self.colors.get(algo_key, 'black')
                 path_coords = []
 
@@ -736,6 +805,78 @@ class RouteOptimizationGUI:
         """Toggle node labels on/off"""
         # This would require storing label objects and showing/hiding them
         pass
+
+    def _toggle_all_paths(self) -> None:
+        """Toggle visibility of all paths"""
+        if not self.current_paths:
+            messagebox.showinfo("Info", "No paths to toggle. Please find paths first.")
+            return
+            
+        # Check if all paths are currently visible
+        all_visible = all(self.path_visibility_vars[key].get() 
+                         for key in self.path_visibility_vars 
+                         if key in self.current_paths)
+        
+        # Toggle all paths
+        new_state = not all_visible
+        for key in self.current_paths:
+            if key in self.path_visibility_vars:
+                self.path_visibility_vars[key].set(new_state)
+        
+        self._update_plot()
+        state_text = "shown" if new_state else "hidden"
+        self.status_var.set(f"All paths {state_text}")
+
+    def _show_only_shortest(self) -> None:
+        """Show only the shortest path"""
+        self._show_only_path("shortest", "Shortest Path")
+
+    def _show_only_pavement(self) -> None:
+        """Show only the pavement optimized path"""
+        self._show_only_path("pavement", "Pavement Optimized Path")
+
+    def _show_only_multi_criteria(self) -> None:
+        """Show only the multi-criteria path"""
+        self._show_only_path("multi_criteria", "Multi-Criteria Path")
+
+    def _show_only_path(self, target_key: str, path_name: str) -> None:
+        """Show only the specified path type"""
+        if target_key not in self.current_paths:
+            messagebox.showinfo("Info", f"{path_name} not available. Please calculate paths first.")
+            return
+        
+        # Hide all paths except the target
+        for key in self.path_visibility_vars:
+            if key in self.current_paths:
+                self.path_visibility_vars[key].set(key == target_key)
+        
+        self._update_plot()
+        self.status_var.set(f"Showing only {path_name}")
+
+    def _on_visibility_toggle(self, algo_key: str = None) -> None:
+        """Handle individual path visibility toggle"""
+        if not self.current_paths:
+            return
+        
+        print(f"Debug: Visibility toggled for {algo_key}")  # Debug output
+            
+        # Count visible paths
+        visible_paths = []
+        for key in self.current_paths:
+            if key in self.path_visibility_vars and self.path_visibility_vars[key].get():
+                visible_paths.append(key)
+        
+        # Update plot
+        self._update_plot()
+        
+        # Update status
+        if len(visible_paths) == 0:
+            self.status_var.set("All paths hidden")
+        elif len(visible_paths) == 1:
+            path_name = visible_paths[0].replace("_", " ").title()
+            self.status_var.set(f"Showing only {path_name} path")
+        else:
+            self.status_var.set(f"Showing {len(visible_paths)} paths")
 
     def _save_image(self) -> None:
         """Save the current plot as an image"""

@@ -16,12 +16,15 @@ Author: YOLOv5 Route Optimization System
 """
 
 import os
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.patches import Circle, PathPatch
 from matplotlib.path import Path
+from matplotlib.collections import LineCollection
+from matplotlib import cm, colors
 import networkx as nx
 import osmnx as ox
 import numpy as np
@@ -65,7 +68,7 @@ class RouteOptimizationGUI:
     def _load_graph(self, graph_path: str) -> None:
         """Load the road network graph with PASER scores"""
         try:
-            print(f"📊 Loading graph from {graph_path}...")
+            print(f"[Graph] Loading graph from {graph_path}...")
             self.graph = ox.load_graphml(graph_path)
 
             # Get node positions for plotting
@@ -75,7 +78,7 @@ class RouteOptimizationGUI:
             # Print basic statistics
             n_nodes = len(self.graph.nodes())
             n_edges = len(self.graph.edges())
-            print(f"✅ Graph loaded: {n_nodes} nodes, {n_edges} edges")
+            print(f"[OK] Graph loaded: {n_nodes} nodes, {n_edges} edges")
 
             # Validate PASER scores are present
             edges_with_paser = 0
@@ -83,7 +86,7 @@ class RouteOptimizationGUI:
                 if 'paser_score' in data:
                     edges_with_paser += 1
 
-            print(f"✅ PASER scores found on {edges_with_paser}/{n_edges} edges")
+            print(f"[OK] PASER scores found on {edges_with_paser}/{n_edges} edges")
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load graph: {e}")
@@ -96,6 +99,9 @@ class RouteOptimizationGUI:
         self.root.geometry("1400x900")
         self.root.state('zoomed')
 
+        # Initialize variables requiring root
+        self.color_by_paser_var = tk.BooleanVar(value=False)
+
         # Create main frames
         self._create_menu_bar()
         self._create_main_layout()
@@ -106,6 +112,19 @@ class RouteOptimizationGUI:
         # Setup event handlers
         self._setup_event_handlers()
 
+        # Handle window close properly
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+    def _on_closing(self) -> None:
+        """Handle application exit"""
+        try:
+            self.root.quit()
+            self.root.destroy()
+        except Exception:
+            pass
+        finally:
+            sys.exit(0)
+
     def _create_menu_bar(self) -> None:
         """Create the menu bar"""
         menubar = tk.Menu(self.root)
@@ -115,7 +134,7 @@ class RouteOptimizationGUI:
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Export Results", command=self._export_results)
-        file_menu.add_command(label="Exit", command=self.root.quit)
+        file_menu.add_command(label="Exit", command=self._on_closing)
 
         # View menu
         view_menu = tk.Menu(menubar, tearoff=0)
@@ -127,6 +146,9 @@ class RouteOptimizationGUI:
         view_menu.add_command(label="Show Only Pavement Path", command=self._show_only_pavement)
         view_menu.add_command(label="Show Only Multi-Criteria Path", command=self._show_only_multi_criteria)
         view_menu.add_separator()
+        view_menu.add_checkbutton(label="Color Paths by PASER Score",
+                                variable=self.color_by_paser_var,
+                                command=self._update_plot)
         view_menu.add_command(label="Toggle Node Labels", command=self._toggle_node_labels)
 
         # Help menu
@@ -201,23 +223,23 @@ class RouteOptimizationGUI:
 
             frame = ttk.Frame(algo_frame)
             frame.pack(fill=tk.X, pady=2)
-            
+
             # Algorithm selection checkbox
             ttk.Checkbutton(frame, text=name, variable=var).pack(side=tk.LEFT)
-            
+
             # Path visibility toggle (only show if path exists)
             # Use a closure to capture the current key value
             def make_visibility_command(algo_key):
                 return lambda: self._on_visibility_toggle(algo_key)
-            
-            visibility_cb = ttk.Checkbutton(frame, text="Show", variable=visibility_var, 
+
+            visibility_cb = ttk.Checkbutton(frame, text="Show", variable=visibility_var,
                                           command=make_visibility_command(key))
             visibility_cb.pack(side=tk.LEFT, padx=(10, 0))
-            
+
             # Store reference for later enabling/disabling
             setattr(self, f"visibility_cb_{key}", visibility_cb)
             visibility_cb.configure(state="disabled")  # Initially disabled
-            
+
             ttk.Label(frame, text=desc, font=("Arial", 8), foreground="gray").pack(side=tk.RIGHT, padx=(10, 0))
 
         # Action buttons
@@ -374,7 +396,7 @@ class RouteOptimizationGUI:
         self.selected_end = None
         self.start_var.set("")
         self.end_var.set("")
-        
+
         # Clear paths and disable visibility checkboxes
         self.current_paths = {}
         self.route_analyses = {}
@@ -382,7 +404,7 @@ class RouteOptimizationGUI:
         for key in self.path_visibility_vars:
             visibility_cb = getattr(self, f"visibility_cb_{key}")
             visibility_cb.configure(state="disabled")
-            
+
         self._clear_paths()
         self._update_plot()
         self.status_var.set("Click on map to select start node...")
@@ -414,7 +436,7 @@ class RouteOptimizationGUI:
                             path = self._multi_criteria_path(start_node, end_node)
                             self.current_paths[algo_key] = path
 
-                        print(f"✅ {algo_key} path found with {len(path)} nodes")
+                        print(f"[OK] {algo_key} path found with {len(path)} nodes")
 
                         # Debug: Show path differences
                         if algo_key != "shortest":
@@ -422,12 +444,12 @@ class RouteOptimizationGUI:
                             if 'shortest' in self.current_paths:
                                 shortest_path = self.current_paths['shortest']
                                 if path != shortest_path:
-                                    print(f"   🎯 {algo_key} path differs from shortest path!")
+                                    print(f"   [Diff] {algo_key} path differs from shortest path!")
                                 else:
-                                    print(f"   ⚠️ {algo_key} path is identical to shortest path")
+                                    print(f"   [Same] {algo_key} path is identical to shortest path")
 
                     except Exception as e:
-                        print(f"❌ {algo_key} algorithm failed: {e}")
+                        print(f"[Error] {algo_key} algorithm failed: {e}")
                         messagebox.showerror("Error", f"{algo_key} algorithm failed: {e}")
                         import traceback
                         traceback.print_exc()
@@ -715,10 +737,10 @@ class RouteOptimizationGUI:
         for line in self.ax.lines:
             if hasattr(line, '_path_type'):  # Our custom attribute for path lines
                 lines_to_remove.append(line)
-        
+
         for line in lines_to_remove:
             line.remove()
-        
+
         # Also clear any collections with path labels
         collections_to_remove = []
         for collection in self.ax.collections:
@@ -726,7 +748,7 @@ class RouteOptimizationGUI:
                 label = collection.get_label()
                 if label and ('path' in label or label in ['start', 'end']):
                     collections_to_remove.append(collection)
-        
+
         for collection in collections_to_remove:
             collection.remove()
 
@@ -739,22 +761,41 @@ class RouteOptimizationGUI:
         self.selected_end = None
         self.start_var.set("")
         self.end_var.set("")
-        
+
         # Disable all visibility checkboxes
         for key in self.path_visibility_vars:
             visibility_cb = getattr(self, f"visibility_cb_{key}")
             visibility_cb.configure(state="disabled")
             self.path_visibility_vars[key].set(True)  # Reset to visible
-        
+
         # Clear metrics display
         self.metrics_text.delete(1.0, tk.END)
         self.metrics_text.insert(tk.END, "No routes calculated")
-        
+
         # Update plot
         self._clear_paths()
         self._initialize_plot()
-        
+
         self.status_var.set("All paths cleared")
+
+    def _get_edge_paser(self, u: int, v: int) -> float:
+        """Get PASER score for an edge with robust error handling"""
+        edge_data = self.graph.get_edge_data(u, v)
+        if not edge_data:
+            return 5.0
+
+        # Get the first edge key
+        key = list(edge_data.keys())[0]
+        data = edge_data[key]
+
+        paser_raw = data.get('paser_score', 5.0)
+        try:
+            if isinstance(paser_raw, str):
+                clean_paser = paser_raw.strip().replace('\x00', '').replace('\ufeff', '')
+                return float(clean_paser) if clean_paser else 5.0
+            return float(paser_raw) if paser_raw != 0 else 5.0
+        except (ValueError, TypeError):
+            return 5.0
 
     def _update_plot(self) -> None:
         """Update the plot with current selections and paths"""
@@ -775,35 +816,62 @@ class RouteOptimizationGUI:
 
         # Clear stored path line references
         self.path_lines = {}
-        
-        # Draw paths (only if visible) with unique properties
+
+        # Draw paths (only if visible)
         for algo_key, path in self.current_paths.items():
-            if (path and len(path) > 1 and 
-                algo_key in self.path_visibility_vars and 
+            if (path and len(path) > 1 and
+                algo_key in self.path_visibility_vars and
                 self.path_visibility_vars[algo_key].get()):
-                
-                color = self.colors.get(algo_key, 'black')
+
+                # Determine z-order
+                zorder = 5 + len(self.current_paths) - list(self.current_paths.keys()).index(algo_key)
+
                 path_coords = []
+                segments = []
+                colors_list = []
 
-                for node in path:
-                    if node in self.node_positions:
-                        path_coords.append(self.node_positions[node])
+                # Prepare segments
+                for i in range(len(path) - 1):
+                    u, v = path[i], path[i+1]
+                    if u in self.node_positions and v in self.node_positions:
+                        p1 = self.node_positions[u]
+                        p2 = self.node_positions[v]
 
-                if len(path_coords) > 1:
-                    path_coords = np.array(path_coords)
-                    
-                    # Create line with custom attributes for identification
-                    line, = self.ax.plot(path_coords[:, 0], path_coords[:, 1],
-                                       color=color, linewidth=3, alpha=0.8,
-                                       zorder=5 + len(self.current_paths) - list(self.current_paths.keys()).index(algo_key))
-                    
-                    # Add custom attributes to identify this line
-                    line._path_type = algo_key
-                    line._algo_key = algo_key
-                    line.set_label(f'{algo_key}_path')
-                    
-                    # Store reference for management
-                    self.path_lines[algo_key] = line
+                        if self.color_by_paser_var.get():
+                            segments.append([p1, p2])
+                            paser = self._get_edge_paser(u, v)
+                            # Map PASER 1-10 to colormap (RdYlGn)
+                            # Normalize: 1 -> 0.0 (Red), 10 -> 1.0 (Green)
+                            norm_score = max(0.0, min(1.0, (paser - 1) / 9.0))
+                            colors_list.append(cm.RdYlGn(norm_score))
+                        else:
+                            path_coords.append(p1)
+
+                # Draw based on mode
+                if self.color_by_paser_var.get() and segments:
+                    lc = LineCollection(segments, colors=colors_list, linewidths=4, alpha=0.8, zorder=zorder)
+                    lc.set_label(f'{algo_key}_path')
+                    lc._path_type = algo_key
+                    self.ax.add_collection(lc)
+                    self.path_lines[algo_key] = lc
+
+                elif not self.color_by_paser_var.get() and path_coords:
+                    # Include last point for continuous line
+                    if path[-1] in self.node_positions:
+                        path_coords.append(self.node_positions[path[-1]])
+
+                    if len(path_coords) > 1:
+                        path_coords = np.array(path_coords)
+                        color = self.colors.get(algo_key, 'black')
+
+                        line, = self.ax.plot(path_coords[:, 0], path_coords[:, 1],
+                                           color=color, linewidth=3, alpha=0.8,
+                                           zorder=zorder)
+
+                        line._path_type = algo_key
+                        line._algo_key = algo_key
+                        line.set_label(f'{algo_key}_path')
+                        self.path_lines[algo_key] = line
 
         self.canvas.draw()
 
@@ -842,18 +910,18 @@ class RouteOptimizationGUI:
         if not self.current_paths:
             messagebox.showinfo("Info", "No paths to toggle. Please find paths first.")
             return
-            
+
         # Check if all paths are currently visible
-        all_visible = all(self.path_visibility_vars[key].get() 
-                         for key in self.path_visibility_vars 
+        all_visible = all(self.path_visibility_vars[key].get()
+                         for key in self.path_visibility_vars
                          if key in self.current_paths)
-        
+
         # Toggle all paths
         new_state = not all_visible
         for key in self.current_paths:
             if key in self.path_visibility_vars:
                 self.path_visibility_vars[key].set(new_state)
-        
+
         self._update_plot()
         state_text = "shown" if new_state else "hidden"
         self.status_var.set(f"All paths {state_text}")
@@ -875,12 +943,12 @@ class RouteOptimizationGUI:
         if target_key not in self.current_paths:
             messagebox.showinfo("Info", f"{path_name} not available. Please calculate paths first.")
             return
-        
+
         # Hide all paths except the target
         for key in self.path_visibility_vars:
             if key in self.current_paths:
                 self.path_visibility_vars[key].set(key == target_key)
-        
+
         self._update_plot()
         self.status_var.set(f"Showing only {path_name}")
 
@@ -888,18 +956,18 @@ class RouteOptimizationGUI:
         """Handle individual path visibility toggle"""
         if not self.current_paths:
             return
-        
+
         print(f"Debug: Visibility toggled for {algo_key}")  # Debug output
-            
+
         # Count visible paths
         visible_paths = []
         for key in self.current_paths:
             if key in self.path_visibility_vars and self.path_visibility_vars[key].get():
                 visible_paths.append(key)
-        
+
         # Update plot
         self._update_plot()
-        
+
         # Update status
         if len(visible_paths) == 0:
             self.status_var.set("All paths hidden")
@@ -1048,7 +1116,10 @@ class RouteOptimizationGUI:
                         paser_score = 5.0  # Default neutral PASER score
 
                     # Invert PASER score (lower PASER = higher cost = worse pavement)
-                    return max(0.1, 10 - paser_score)  # Higher return value = worse pavement
+                    # Multiply by length to penalize long stretches of bad road
+                    paser_cost = max(0.1, 10 - paser_score)
+                    length = data.get('length', 100)
+                    return paser_cost * length
 
                 try:
                     path = nx.shortest_path(
@@ -1061,11 +1132,23 @@ class RouteOptimizationGUI:
                     path = self._shortest_path_algorithm(start, end)
             else:
                 print(f"Debug: Using inverted_paser for pavement optimization")
+                # Define weight function for inverted_paser strategy as well to include length
+                def get_inverted_paser_weight(u, v, data):
+                    inverted_val = data.get('inverted_paser', 5.0)
+                    length = data.get('length', 100)
+                    try:
+                        # Ensure numeric
+                        val = float(inverted_val) if isinstance(inverted_val, (int, float, str)) else 5.0
+                        dist = float(length) if length else 100.0
+                        return val * dist
+                    except:
+                        return 5.0 * 100.0
+
                 try:
                     path = nx.shortest_path(
-                        self.graph, source=start, target=end, weight='inverted_paser'
+                        self.graph, source=start, target=end, weight=get_inverted_paser_weight
                     )
-                    print(f"Debug: Pavement algorithm succeeded using inverted_paser")
+                    print(f"Debug: Pavement algorithm succeeded using weighted inverted_paser")
                 except Exception as e:
                     print(f"Debug: Pavement algorithm failed with inverted_paser: {e}")
                     print(f"Debug: Error type: {type(e).__name__}")
@@ -1226,20 +1309,23 @@ class RouteOptimizationGUI:
 def main():
     """Main function to run the Visual Route Optimization POC"""
     try:
+        # Use paths relative to the script location to ensure they work from any working directory
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        graph_path = os.path.join(BASE_DIR, "data", "updated_road_network.graphml")
+
         # Check if required files exist
-        graph_path = "../data/updated_road_network.graphml"
         if not os.path.exists(graph_path):
-            print("❌ Updated road network not found.")
-            print("💡 Please run Stage 5 first: python src/stage5_update_graph.py")
+            print("[Error] Updated road network not found.")
+            print("[Info] Please run Stage 5 first: python src/stage5_update_graph.py")
             return
 
         # Initialize and run the GUI
         app = RouteOptimizationGUI(graph_path)
-        print("🚀 Starting Visual Route Optimization POC...")
+        print("[Start] Starting Visual Route Optimization POC...")
         app.run()
 
     except Exception as e:
-        print(f"❌ Application failed to start: {e}")
+        print(f"[Error] Application failed to start: {e}")
         import traceback
         traceback.print_exc()
 

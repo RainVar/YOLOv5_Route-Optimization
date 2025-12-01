@@ -64,10 +64,12 @@ with open(SCORES_CSV, "w", newline="") as f:
                 features[count_col] += 1
                 features[area_col] += area
         # Prepare feature vector in correct order
-        feature_vector = [features[col] for col in feature_columns]
+        # Create a DataFrame with feature names to avoid sklearn warnings
+        input_df = pd.DataFrame([features], columns=feature_columns)
+
         try:
             # Predict proxy PASER score for this image
-            score = regressor.predict([feature_vector])[0]
+            score = regressor.predict(input_df)[0]
         except Exception as e:
             print(f"Error predicting PASER score for {image_path}: {e}")
             continue

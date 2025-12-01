@@ -17,9 +17,11 @@ from collections import defaultdict
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-ROAD_NETWORK_PATH = "../data/road_network.graphml"       # Input: Road network graph
-PASER_SCORES_CSV = "../data/proxy_paser_scores.csv"     # Input: PASER scores per image
-OUTPUT_PATH = "../data/updated_road_network.graphml" # Output: Updated graph with PASER scores
+# Use paths relative to the script location to ensure they work from any working directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROAD_NETWORK_PATH = os.path.join(BASE_DIR, "data", "road_network.graphml")
+PASER_SCORES_CSV = os.path.join(BASE_DIR, "data", "proxy_paser_scores_new.csv")
+OUTPUT_PATH = os.path.join(BASE_DIR, "data", "updated_road_network.graphml")
 
 def load_paser_scores(csv_path):
     """
@@ -28,25 +30,25 @@ def load_paser_scores(csv_path):
     """
     print(f"Loading PASER scores from {csv_path}")
     paser_scores = defaultdict(list)
-    
+
     with open(csv_path, 'r', newline='') as f:
         reader = csv.DictReader(f)
         for row in reader:
             u = row['u']
-            v = row['v'] 
+            v = row['v']
             k = int(row['k'])
             score = float(row['proxy_paser_score'])
-            
+
             # Group scores by edge (u, v, k)
             edge_key = (u, v, k)
             paser_scores[edge_key].append(score)
-    
+
     # Calculate average score for each edge
     avg_scores = {}
     for edge_key, scores in paser_scores.items():
         avg_scores[edge_key] = sum(scores) / len(scores)
         print(f"Edge {edge_key}: {len(scores)} images, avg PASER score: {avg_scores[edge_key]:.2f}")
-    
+
     print(f"Loaded PASER scores for {len(avg_scores)} edges")
     return avg_scores
 
@@ -59,7 +61,7 @@ def update_graph_with_paser(graph, paser_scores):
     print("Updating graph edges with PASER scores...")
     updated_edges = 0
     total_edges = len(graph.edges())
-    
+
     for u, v, k, data in graph.edges(keys=True, data=True):
         # Try both string and integer versions of node IDs
         edge_keys_to_try = [
@@ -67,13 +69,13 @@ def update_graph_with_paser(graph, paser_scores):
             (u, v, k),
             (int(u) if str(u).isdigit() else u, int(v) if str(v).isdigit() else v, k)
         ]
-        
+
         paser_score = None
         for edge_key in edge_keys_to_try:
             if edge_key in paser_scores:
                 paser_score = paser_scores[edge_key]
                 break
-        
+
         if paser_score is not None:
             data['paser_score'] = paser_score
             # Store inverted PASER score for optimization (lower PASER = higher cost)
@@ -83,7 +85,7 @@ def update_graph_with_paser(graph, paser_scores):
         else:
             data['paser_score'] = 5.0  # Middle score (1-10 scale, 5 = fair condition)
             data['inverted_paser'] = 11 - 5.0  # Inverted default score
-    
+
     print(f"Updated {updated_edges}/{total_edges} edges with PASER scores")
     print(f"Remaining {total_edges - updated_edges} edges assigned default score of 5.0")
     return graph
@@ -97,12 +99,12 @@ def update_road_network_with_paser():
         print(f"Error: Road network file not found: {ROAD_NETWORK_PATH}")
         print("Please run stage1_build_road_network.py first")
         return
-    
+
     if not os.path.exists(PASER_SCORES_CSV):
         print(f"Error: PASER scores file not found: {PASER_SCORES_CSV}")
         print("Please run stage4_regression_inference.py first")
         return
-    
+
     # Load the road network graph
     print(f"Loading road network from {ROAD_NETWORK_PATH}")
     try:
@@ -111,28 +113,28 @@ def update_road_network_with_paser():
     except Exception as e:
         print(f"Error loading road network: {e}")
         return
-    
+
     # Load PASER scores
     try:
         paser_scores = load_paser_scores(PASER_SCORES_CSV)
     except Exception as e:
         print(f"Error loading PASER scores: {e}")
         return
-    
+
     # Update graph with PASER scores
     try:
         graph = update_graph_with_paser(graph, paser_scores)
     except Exception as e:
         print(f"Error updating graph with PASER scores: {e}")
         return
-    
+
     # Save the updated graph
     try:
         # Ensure output directory exists
         os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
         ox.save_graphml(graph, filepath=OUTPUT_PATH)
         print(f"Updated graph saved to {OUTPUT_PATH}")
-        
+
         # Print summary statistics
         paser_scores_list = [data.get('paser_score', 5.0) for u, v, k, data in graph.edges(keys=True, data=True)]
         inverted_paser_scores_list = [data.get('inverted_paser', 6.0) for u, v, k, data in graph.edges(keys=True, data=True)]
@@ -142,12 +144,12 @@ def update_road_network_with_paser():
         avg_inverted_paser = sum(inverted_paser_scores_list) / len(inverted_paser_scores_list)
         min_inverted_paser = min(inverted_paser_scores_list)
         max_inverted_paser = max(inverted_paser_scores_list)
-        
+
         print(f"\nPASER Score Statistics:")
         print(f"Original PASER - Average: {avg_paser:.2f}, Range: {min_paser:.2f} - {max_paser:.2f}")
         print(f"Inverted PASER - Average: {avg_inverted_paser:.2f}, Range: {min_inverted_paser:.2f} - {max_inverted_paser:.2f}")
         print(f"Total edges: {len(paser_scores_list)}")
-        
+
     except Exception as e:
         print(f"Error saving updated graph: {e}")
         return

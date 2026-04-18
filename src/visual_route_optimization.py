@@ -911,14 +911,26 @@ class RouteOptimizationGUI:
                 algo_key in self.path_visibility_vars and
                 self.path_visibility_vars[algo_key].get()):
 
-                # Determine z-order
-                zorder = 5 + len(self.current_paths) - list(self.current_paths.keys()).index(algo_key)
+                # Determine base z-order (keeps relative stacking among paths)
+                idx = list(self.current_paths.keys()).index(algo_key)
+                base_z = 5 + len(self.current_paths) - idx
 
                 # Get style for this path type
                 style = self.line_styles.get(algo_key, {'offset': 0, 'dash': 'solid', 'width': 3})
                 offset = style['offset']
                 dash = style['dash']
                 lw = style['width']
+
+                # Determine if this path uses a dashed/broken pattern
+                # (treat any non-'solid' linestyle as dashed/broken)
+                is_dashed = not (isinstance(dash, str) and dash == 'solid')
+
+                # If dashed/broken, display on top by raising z-order substantially
+                # Keep base ordering among dashed lines by adding small offset
+                if is_dashed:
+                    zorder = base_z + 100
+                else:
+                    zorder = base_z
 
                 path_coords = []
                 segments = []
@@ -970,7 +982,6 @@ class RouteOptimizationGUI:
                         line, = self.ax.plot(path_coords[:, 0], path_coords[:, 1],
                                            color=color, linewidth=lw, alpha=0.85,
                                            linestyle=dash, zorder=zorder)
-
                         line._path_type = algo_key
                         line._algo_key = algo_key
                         line.set_label(f'{algo_key}_path')

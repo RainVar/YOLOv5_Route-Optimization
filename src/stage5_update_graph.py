@@ -79,12 +79,12 @@ def update_graph_with_paser(graph, paser_scores):
         if paser_score is not None:
             data['paser_score'] = paser_score
             # Store inverted PASER score for optimization (lower PASER = higher cost)
-            # PASER 1 (very poor) -> inverted = 10, PASER 10 (excellent) -> inverted = 1
-            data['inverted_paser'] = 11 - paser_score
+            # PASER 1 (very poor) -> inverted = 9, PASER 10 (excellent) -> inverted = 0
+            data['inverted_paser'] = 10 - paser_score
             updated_edges += 1
         else:
             data['paser_score'] = 5.0  # Middle score (1-10 scale, 5 = fair condition)
-            data['inverted_paser'] = 11 - 5.0  # Inverted default score
+            data['inverted_paser'] = 10 - 5.0  # Inverted default score
 
     print(f"Updated {updated_edges}/{total_edges} edges with PASER scores")
     print(f"Remaining {total_edges - updated_edges} edges assigned default score of 5.0")

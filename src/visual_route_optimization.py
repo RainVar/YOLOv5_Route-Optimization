@@ -35,6 +35,16 @@ import statistics
 import math
 from datetime import datetime
 
+# Alternating weight profiles for multi-criteria optimization
+# Each profile assigns different relative importance to pavement, elevation, and distance
+WEIGHT_PROFILES = {
+    'multi_pavement_priority': {'label': 'Pavement Priority',   'wp': 0.50, 'we': 0.30, 'wd': 0.20},
+    'multi_elevation_priority': {'label': 'Elevation Priority', 'wp': 0.30, 'we': 0.50, 'wd': 0.20},
+    'multi_distance_priority': {'label': 'Distance Priority',   'wp': 0.20, 'we': 0.30, 'wd': 0.50},
+    'multi_balanced': {'label': 'Balanced',                     'wp': 0.34, 'we': 0.33, 'wd': 0.33},
+}
+
+
 class RouteOptimizationGUI:
     """
     Desktop GUI for Route Optimization POC
@@ -57,9 +67,25 @@ class RouteOptimizationGUI:
 
         # Colors for different algorithms
         self.colors = {
-            'shortest': 'blue',
-            'pavement': 'green',
-            'multi_criteria': 'red'
+            'shortest': '#2196F3',                  # Blue
+            'pavement': '#4CAF50',                   # Green
+            'multi_pavement_priority': '#FF5722',    # Deep Orange
+            'multi_elevation_priority': '#9C27B0',   # Purple
+            'multi_distance_priority': '#FF9800',    # Amber
+            'multi_balanced': '#E91E63',             # Pink
+        }
+
+        # Line styles for distinguishing overlapping paths
+        # offset: perpendicular shift (in coordinate units, scaled at draw time)
+        # dash: matplotlib linestyle
+        # width: line width
+        self.line_styles = {
+            'shortest':                 {'offset': -2.5, 'dash': 'solid',          'width': 3.5},
+            'pavement':                 {'offset': -1.5, 'dash': (0, (8, 3)),      'width': 3.0},
+            'multi_pavement_priority':  {'offset': -0.5, 'dash': (0, (5, 2, 1, 2)),'width': 2.8},
+            'multi_elevation_priority': {'offset':  0.5, 'dash': (0, (1, 1)),      'width': 2.8},
+            'multi_distance_priority':  {'offset':  1.5, 'dash': (0, (4, 2)),      'width': 2.8},
+            'multi_balanced':           {'offset':  2.5, 'dash': (0, (6, 1, 1, 1, 1, 1)), 'width': 2.8},
         }
 
         self._load_graph(graph_path)
@@ -144,7 +170,15 @@ class RouteOptimizationGUI:
         view_menu.add_command(label="Toggle All Paths", command=self._toggle_all_paths)
         view_menu.add_command(label="Show Only Shortest Path", command=self._show_only_shortest)
         view_menu.add_command(label="Show Only Pavement Path", command=self._show_only_pavement)
-        view_menu.add_command(label="Show Only Multi-Criteria Path", command=self._show_only_multi_criteria)
+
+        # Multi-criteria submenu
+        multi_menu = tk.Menu(view_menu, tearoff=0)
+        view_menu.add_cascade(label="Show Only Multi-Criteria...", menu=multi_menu)
+        for profile_key, profile in WEIGHT_PROFILES.items():
+            def make_show_cmd(k, label):
+                return lambda: self._show_only_path(k, label)
+            multi_menu.add_command(label=profile['label'],
+                                  command=make_show_cmd(profile_key, profile['label']))
         view_menu.add_separator()
         view_menu.add_checkbutton(label="Color Paths by PASER Score",
                                 variable=self.color_by_paser_var,
@@ -210,9 +244,12 @@ class RouteOptimizationGUI:
         self.algo_vars = {}
         self.path_visibility_vars = {}
         algorithms = [
-            ("Shortest Path", "shortest", "Distance-based routing"),
-            ("Pavement Optimized", "pavement", "Best pavement quality"),
-            ("Multi-Criteria", "multi_criteria", "Balanced optimization")
+            ("Shortest Path", "shortest", "Distance only"),
+            ("Pavement Optimized", "pavement", "Pavement quality only"),
+            ("⬤ Pavement Priority", "multi_pavement_priority", "wp=0.50 we=0.30 wd=0.20"),
+            ("⬤ Elevation Priority", "multi_elevation_priority", "wp=0.30 we=0.50 wd=0.20"),
+            ("⬤ Distance Priority", "multi_distance_priority", "wp=0.20 we=0.30 wd=0.50"),
+            ("⬤ Balanced", "multi_balanced", "wp=0.34 we=0.33 wd=0.33"),
         ]
 
         for name, key, desc in algorithms:
@@ -330,16 +367,25 @@ class RouteOptimizationGUI:
         self.ax.set_xlabel("Longitude")
         self.ax.set_ylabel("Latitude")
 
-        # Add legend
+        # Add legend (line styles match the dash patterns used for drawing)
         legend_elements = [
-            plt.scatter([], [], c='blue', s=20, label='Road Nodes'),
+            plt.scatter([], [], c='#2196F3', s=20, label='Road Nodes'),
             plt.scatter([], [], c='red', s=30, label='Start Node'),
             plt.scatter([], [], c='green', s=30, label='End Node'),
-            plt.Line2D([], [], color='blue', label='Shortest Path'),
-            plt.Line2D([], [], color='green', label='Pavement Optimized'),
-            plt.Line2D([], [], color='red', label='Multi-Criteria')
+            plt.Line2D([], [], color='#2196F3', linestyle='solid',
+                        linewidth=2, label='Shortest Path'),
+            plt.Line2D([], [], color='#4CAF50', linestyle=(0, (8, 3)),
+                        linewidth=2, label='Pavement Optimized'),
+            plt.Line2D([], [], color='#FF5722', linestyle=(0, (5, 2, 1, 2)),
+                        linewidth=2, label='MC: Pavement Priority'),
+            plt.Line2D([], [], color='#9C27B0', linestyle=(0, (1, 1)),
+                        linewidth=2, label='MC: Elevation Priority'),
+            plt.Line2D([], [], color='#FF9800', linestyle=(0, (4, 2)),
+                        linewidth=2, label='MC: Distance Priority'),
+            plt.Line2D([], [], color='#E91E63', linestyle=(0, (6, 1, 1, 1, 1, 1)),
+                        linewidth=2, label='MC: Balanced'),
         ]
-        self.ax.legend(handles=legend_elements, loc='upper right')
+        self.ax.legend(handles=legend_elements, loc='upper right', fontsize=7)
 
         self.canvas.draw()
 
@@ -422,6 +468,9 @@ class RouteOptimizationGUI:
             self.status_var.set(f"Finding paths from {start_node} to {end_node}...")
             self._clear_paths()
 
+            # Pre-compute robust scaling statistics once for all multi-criteria profiles
+            robust_stats = self._compute_robust_scaling_stats()
+
             # Run selected algorithms
             for algo_key, var in self.algo_vars.items():
                 if var.get():
@@ -432,8 +481,14 @@ class RouteOptimizationGUI:
                         elif algo_key == "pavement":
                             path = self._pavement_optimized_path(start_node, end_node)
                             self.current_paths[algo_key] = path
-                        elif algo_key == "multi_criteria":
-                            path = self._multi_criteria_path(start_node, end_node)
+                        elif algo_key in WEIGHT_PROFILES:
+                            profile = WEIGHT_PROFILES[algo_key]
+                            path = self._multi_criteria_path(
+                                start_node, end_node,
+                                wp=profile['wp'], we=profile['we'], wd=profile['wd'],
+                                profile_label=profile['label'],
+                                robust_stats=robust_stats
+                            )
                             self.current_paths[algo_key] = path
 
                         print(f"[OK] {algo_key} path found with {len(path)} nodes")
@@ -631,9 +686,9 @@ class RouteOptimizationGUI:
                 self.metrics_text.insert(tk.END, f"Efficiency: {analysis['elevation_per_km']:.1f}m/km\n")
 
         self.metrics_text.tag_configure('header', font=("Arial", 10, "bold"))
-        self.metrics_text.tag_configure('color_blue', foreground='blue')
-        self.metrics_text.tag_configure('color_green', foreground='green')
-        self.metrics_text.tag_configure('color_red', foreground='red')
+        # Configure color tags for all path types
+        for algo_key, hex_color in self.colors.items():
+            self.metrics_text.tag_configure(f'color_{hex_color}', foreground=hex_color)
 
     def _show_comparison_dialog(self) -> None:
         """Show a dialog with route comparison"""
@@ -697,8 +752,8 @@ class RouteOptimizationGUI:
             tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
             # Configure tags for colors
-            for color in ['blue', 'green', 'red']:
-                tree.tag_configure(f'color_{color}', foreground=color)
+            for algo_key, hex_color in self.colors.items():
+                tree.tag_configure(f'color_{hex_color}', foreground=hex_color)
 
             # Add summary at bottom
             summary_frame = ttk.Frame(comp_window)
@@ -710,9 +765,10 @@ class RouteOptimizationGUI:
 
             summary_text.insert(tk.END, "💡 Analysis Summary:\n\n", "bold")
             summary_text.insert(tk.END, "• Lower elevation and higher PASER scores indicate better cycling routes\n")
-            summary_text.insert(tk.END, "• Green path (Pavement Optimized) typically has the best road surface quality\n")
-            summary_text.insert(tk.END, "• Red path (Multi-Criteria) balances distance, elevation, and pavement quality\n")
-            summary_text.insert(tk.END, "• Blue path (Shortest) is fastest but may have poorer road conditions")
+            summary_text.insert(tk.END, "• Pavement Optimized path uses pavement quality as single criterion\n")
+            summary_text.insert(tk.END, "• Multi-criteria paths use alternating weight profiles with robust scaling\n")
+            summary_text.insert(tk.END, "• Weights: (wp=pavement, we=elevation, wd=distance)\n")
+            summary_text.insert(tk.END, "• Shortest path is distance-only but may have poorer road conditions")
 
             summary_text.tag_configure("bold", font=("Arial", 10, "bold"))
             summary_text.config(state=tk.DISABLED)
@@ -796,6 +852,38 @@ class RouteOptimizationGUI:
             return float(paser_raw) if paser_raw != 0 else 5.0
         except (ValueError, TypeError):
             return 5.0
+    def _offset_segment(self, p1, p2, offset_pixels):
+        """
+        Offset a line segment perpendicular to its direction.
+        The offset is scaled by the current view extent so it looks consistent
+        regardless of zoom level.
+
+        Args:
+            p1: (x, y) start point in data coordinates
+            p2: (x, y) end point in data coordinates
+            offset_pixels: signed offset amount (positive = left of travel direction)
+
+        Returns:
+            (p1_offset, p2_offset) tuple of offset points
+        """
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        length = math.sqrt(dx * dx + dy * dy)
+        if length < 1e-12:
+            return p1, p2
+
+        # Perpendicular unit vector (rotated 90° CCW)
+        nx_val = -dy / length
+        ny_val = dx / length
+
+        # Scale offset relative to the current view width so it looks good at any zoom
+        xlim = self.ax.get_xlim()
+        view_width = xlim[1] - xlim[0]
+        scale = view_width * 0.0008 * offset_pixels  # tune multiplier for visual spacing
+
+        p1_off = (p1[0] + nx_val * scale, p1[1] + ny_val * scale)
+        p2_off = (p2[0] + nx_val * scale, p2[1] + ny_val * scale)
+        return p1_off, p2_off
 
     def _update_plot(self) -> None:
         """Update the plot with current selections and paths"""
@@ -817,7 +905,7 @@ class RouteOptimizationGUI:
         # Clear stored path line references
         self.path_lines = {}
 
-        # Draw paths (only if visible)
+        # Draw paths (only if visible) with offset, dash, and width per path type
         for algo_key, path in self.current_paths.items():
             if (path and len(path) > 1 and
                 algo_key in self.path_visibility_vars and
@@ -826,30 +914,39 @@ class RouteOptimizationGUI:
                 # Determine z-order
                 zorder = 5 + len(self.current_paths) - list(self.current_paths.keys()).index(algo_key)
 
+                # Get style for this path type
+                style = self.line_styles.get(algo_key, {'offset': 0, 'dash': 'solid', 'width': 3})
+                offset = style['offset']
+                dash = style['dash']
+                lw = style['width']
+
                 path_coords = []
                 segments = []
                 colors_list = []
 
-                # Prepare segments
+                # Prepare segments with perpendicular offsets
                 for i in range(len(path) - 1):
                     u, v = path[i], path[i+1]
                     if u in self.node_positions and v in self.node_positions:
                         p1 = self.node_positions[u]
                         p2 = self.node_positions[v]
 
+                        # Apply perpendicular offset so overlapping paths fan out
+                        p1_off, p2_off = self._offset_segment(p1, p2, offset)
+
                         if self.color_by_paser_var.get():
-                            segments.append([p1, p2])
+                            segments.append([p1_off, p2_off])
                             paser = self._get_edge_paser(u, v)
-                            # Map PASER 1-10 to colormap (RdYlGn)
-                            # Normalize: 1 -> 0.0 (Red), 10 -> 1.0 (Green)
                             norm_score = max(0.0, min(1.0, (paser - 1) / 9.0))
                             colors_list.append(cm.RdYlGn(norm_score))
                         else:
-                            path_coords.append(p1)
+                            path_coords.append(p1_off)
 
                 # Draw based on mode
                 if self.color_by_paser_var.get() and segments:
-                    lc = LineCollection(segments, colors=colors_list, linewidths=4, alpha=0.8, zorder=zorder)
+                    lc = LineCollection(segments, colors=colors_list,
+                                        linewidths=lw, alpha=0.85,
+                                        linestyles=dash, zorder=zorder)
                     lc.set_label(f'{algo_key}_path')
                     lc._path_type = algo_key
                     self.ax.add_collection(lc)
@@ -858,15 +955,21 @@ class RouteOptimizationGUI:
                 elif not self.color_by_paser_var.get() and path_coords:
                     # Include last point for continuous line
                     if path[-1] in self.node_positions:
-                        path_coords.append(self.node_positions[path[-1]])
+                        last_p = self.node_positions[path[-1]]
+                        if len(path) >= 2 and path[-2] in self.node_positions:
+                            prev_p = self.node_positions[path[-2]]
+                            _, last_off = self._offset_segment(prev_p, last_p, offset)
+                            path_coords.append(last_off)
+                        else:
+                            path_coords.append(last_p)
 
                     if len(path_coords) > 1:
                         path_coords = np.array(path_coords)
                         color = self.colors.get(algo_key, 'black')
 
                         line, = self.ax.plot(path_coords[:, 0], path_coords[:, 1],
-                                           color=color, linewidth=3, alpha=0.8,
-                                           zorder=zorder)
+                                           color=color, linewidth=lw, alpha=0.85,
+                                           linestyle=dash, zorder=zorder)
 
                         line._path_type = algo_key
                         line._algo_key = algo_key
@@ -934,9 +1037,8 @@ class RouteOptimizationGUI:
         """Show only the pavement optimized path"""
         self._show_only_path("pavement", "Pavement Optimized Path")
 
-    def _show_only_multi_criteria(self) -> None:
-        """Show only the multi-criteria path"""
-        self._show_only_path("multi_criteria", "Multi-Criteria Path")
+    # Note: Multi-criteria show-only is handled via the View menu submenu
+    # using _show_only_path() directly with the profile key
 
     def _show_only_path(self, target_key: str, path_name: str) -> None:
         """Show only the specified path type"""
@@ -1185,83 +1287,163 @@ class RouteOptimizationGUI:
             except:
                 raise Exception(f"Pavement optimization failed: {e}")
 
-    def _multi_criteria_path(self, start: int, end: int) -> List[int]:
+    def _compute_robust_scaling_stats(self) -> Dict:
         """
-        Multi-criteria path optimization using methodology-specified normalization and ROC weights.
-        
-        Normalization formulas (from methodology):
-        - Inverted PASER Score: norm_PPS = PPS / 10 (where PPS is inverted, 0=excellent, 10=worst)
-        - Elevation Gain: norm_elev = elev_gain / max_elev_gain
-        - Distance: norm_dist = (distance - min_dist) / (max_dist - min_dist)
-                    Simplified to: norm_dist = distance / max_dist (when min_dist ≈ 0)
-        
+        Compute robust scaling statistics (median and IQR) for all three criteria
+        across all edges. This is computed once and shared across all weight profiles.
+
+        Robust scaling formula: norm_x = (x - median(x)) / IQR(x)
+        where IQR(x) = Q3(x) - Q1(x)
+
+        Returns dict with median and IQR for each criterion.
+        """
+        pps_values = []
+        elevation_gains = []
+        distances = []
+
+        for u, v, k, data in self.graph.edges(keys=True, data=True):
+            # Inverted PASER scores
+            if 'inverted_paser' in data:
+                try:
+                    val = data['inverted_paser']
+                    if isinstance(val, str):
+                        val = float(val.strip().replace('\x00', '').replace('\ufeff', ''))
+                    else:
+                        val = float(val)
+                    pps_values.append(val)
+                except (ValueError, TypeError):
+                    pass
+            elif 'paser_score' in data:
+                try:
+                    paser_raw = data['paser_score']
+                    if isinstance(paser_raw, str):
+                        paser_val = float(paser_raw.strip())
+                    else:
+                        paser_val = float(paser_raw)
+                    pps_values.append(10.0 - paser_val)
+                except (ValueError, TypeError):
+                    pass
+
+            # Elevation gains (only positive, as per methodology)
+            if 'elevation_gain' in data:
+                try:
+                    elev_val = float(data['elevation_gain'])
+                    elevation_gains.append(max(0.0, elev_val))
+                except (ValueError, TypeError):
+                    elevation_gains.append(0.0)
+            else:
+                elevation_gains.append(0.0)
+
+            # Distances
+            if 'length' in data:
+                try:
+                    dist_val = float(data['length'])
+                    distances.append(dist_val if dist_val > 0 else 0.0)
+                except (ValueError, TypeError):
+                    distances.append(0.0)
+            else:
+                distances.append(0.0)
+
+        def compute_median_iqr(values):
+            """Compute median and IQR for a list of values."""
+            if not values:
+                return 0.0, 1.0  # Fallback to avoid division by zero
+            sorted_vals = sorted(values)
+            n = len(sorted_vals)
+            median = sorted_vals[n // 2] if n % 2 == 1 else (sorted_vals[n // 2 - 1] + sorted_vals[n // 2]) / 2.0
+            q1_idx = n // 4
+            q3_idx = (3 * n) // 4
+            q1 = sorted_vals[q1_idx]
+            q3 = sorted_vals[q3_idx]
+            iqr = q3 - q1
+            if iqr == 0:
+                iqr = 1.0  # Avoid division by zero when all values are the same
+            return median, iqr
+
+        pps_median, pps_iqr = compute_median_iqr(pps_values)
+        elev_median, elev_iqr = compute_median_iqr(elevation_gains)
+        dist_median, dist_iqr = compute_median_iqr(distances)
+
+        stats = {
+            'pps_median': pps_median, 'pps_iqr': pps_iqr,
+            'elev_median': elev_median, 'elev_iqr': elev_iqr,
+            'dist_median': dist_median, 'dist_iqr': dist_iqr,
+        }
+
+        print(f"[Stats] Robust scaling - PPS: median={pps_median:.3f}, IQR={pps_iqr:.3f}")
+        print(f"[Stats] Robust scaling - Elevation: median={elev_median:.3f}, IQR={elev_iqr:.3f}")
+        print(f"[Stats] Robust scaling - Distance: median={dist_median:.3f}, IQR={dist_iqr:.3f}")
+
+        return stats
+
+    def _multi_criteria_path(self, start: int, end: int,
+                             wp: float = 0.34, we: float = 0.33, wd: float = 0.33,
+                             profile_label: str = "Multi-Criteria",
+                             robust_stats: Dict = None) -> List[int]:
+        """
+        Multi-criteria path optimization using robust scaling normalization
+        and alternating weight profiles.
+
+        Robust scaling normalization (from methodology):
+        - norm_PPS = (PPS_inv - median(PPS_inv)) / IQR(PPS_inv)
+        - norm_elev = (elev_gain - median(elev_gain)) / IQR(elev_gain)
+
+        Only pavement quality and elevation gain are normalized via robust scaling.
+        Distance is NOT normalized — it enters the formula as a constant additive
+        weight (wd) so that the distance criterion contributes linearly through
+        the edge_cost = composite_weight × length multiplication.
+
         Composite weight formula:
-        composite_weight = 0.611 × norm_PPS + 0.278 × norm_elev + 0.111 × norm_dist
-        
+        composite_weight = wp × norm_PPS + we × norm_elev + wd
+
         Edge cost calculation (for Dijkstra's algorithm):
-        edge_cost = composite_weight × edge_length
-        
-        The multiplication by edge_length is essential because:
-        1. It makes the cost proportional to distance traveled (longer bad roads cost more)
-        2. It ensures paths are compared fairly regardless of edge count
-        3. Without it, Dijkstra would favor paths with fewer edges, not better quality
+        edge_cost = composite_weight × length
+
+        This expands to:
+        edge_cost = wp × norm_PPS × length + we × norm_elev × length + wd × length
+
+        The first two terms scale the quality/difficulty metrics by edge length
+        (longer stretches of bad pavement or steep incline cost more). The third
+        term (wd × length) makes the distance criterion contribute linearly to
+        total path cost — higher wd means the algorithm cares more about
+        minimizing total distance, approaching shortest-path behavior.
+
+        Args:
+            start: Start node ID
+            end: End node ID
+            wp: Weight for pavement quality criterion
+            we: Weight for elevation gain criterion
+            wd: Weight for distance criterion
+            profile_label: Human-readable label for this weight profile
+            robust_stats: Pre-computed robust scaling statistics (median, IQR)
         """
         try:
-            # First pass: Calculate max values for normalization (as per methodology)
-            print(f"Debug: Calculating normalization ranges for {len(list(self.graph.edges()))} edges")
+            # Compute robust stats if not provided
+            if robust_stats is None:
+                robust_stats = self._compute_robust_scaling_stats()
 
-            # Collect values for normalization ranges
-            elevation_gains = []
-            distances = []
+            pps_median = robust_stats['pps_median']
+            pps_iqr = robust_stats['pps_iqr']
+            elev_median = robust_stats['elev_median']
+            elev_iqr = robust_stats['elev_iqr']
 
-            for u, v, k, data in self.graph.edges(keys=True, data=True):
-                # Elevation gains (only positive values as per methodology)
-                if 'elevation_gain' in data:
-                    try:
-                        elev_val = float(data['elevation_gain'])
-                        if elev_val > 0:  # Only positive elevation gains (uphill)
-                            elevation_gains.append(elev_val)
-                    except:
-                        pass
+            print(f"[{profile_label}] Weights: wp={wp}, we={we}, wd={wd}")
 
-                # Distances
-                if 'length' in data:
-                    try:
-                        dist_val = float(data['length'])
-                        if dist_val > 0:
-                            distances.append(dist_val)
-                    except:
-                        pass
+            # Use a unique edge attribute key per profile to avoid collisions
+            weight_key = f'composite_weight_{wp}_{we}_{wd}'
 
-            # Calculate normalization ranges as per methodology
-            # PASER: Fixed scale 0-10, so we just divide by 10 (no need for min/max)
-            max_elev_gain = max(elevation_gains) if elevation_gains else 1.0
-            min_dist = min(distances) if distances else 0.0
-            max_dist = max(distances) if distances else 1000.0
-
-            print(f"Debug: Normalization ranges (methodology) - PASER: fixed 0-10 scale, "
-                  f"max_elev_gain: {max_elev_gain:.2f}m, dist: {min_dist:.2f}-{max_dist:.2f}m")
-
-            # ROC weights from methodology (Rank Order Centroid method)
-            # Based on ranking: pavement condition > elevation gain > distance
-            alpha = 0.611  # Pavement quality (61.1%)
-            beta = 0.278   # Elevation (27.8%)
-            gamma = 0.111  # Distance (11.1%)
-
-            # Second pass: Calculate composite weights for each edge
+            # Calculate composite weights for each edge using robust scaling
             successful_calculations = 0
             for u, v, k, data in self.graph.edges(keys=True, data=True):
                 try:
-                    # Get raw values
+                    # Get raw distance
                     distance_raw = data.get('length', 100)
-                    elevation_gain_raw = data.get('elevation_gain', 0)
+                    distance = float(distance_raw) if distance_raw != 0 else 100.0
 
-                    # Get PASER score - prefer inverted_paser if available, otherwise invert paser_score
+                    # Get inverted PASER score
                     if 'inverted_paser' in data:
                         pps_raw = data.get('inverted_paser', 5.0)
                     else:
-                        # Invert PASER score: inverted = 10 - original
-                        # So PASER 10 (best) becomes 0, PASER 1 (worst) becomes 9
                         paser_raw = data.get('paser_score', 5.0)
                         try:
                             paser_val = float(paser_raw) if not isinstance(paser_raw, str) else float(paser_raw.strip())
@@ -1269,11 +1451,7 @@ class RouteOptimizationGUI:
                         except:
                             pps_raw = 5.0
 
-                    # Convert to numbers with fallbacks
-                    distance = float(distance_raw) if distance_raw != 0 else 100.0
-                    elevation_gain = float(elevation_gain_raw) if elevation_gain_raw != 0 else 0.0
-
-                    # Handle inverted PASER score conversion
+                    # Convert inverted PASER to float
                     try:
                         if isinstance(pps_raw, str):
                             pps = float(pps_raw.strip())
@@ -1282,69 +1460,73 @@ class RouteOptimizationGUI:
                     except:
                         pps = 5.0
 
-                    # Apply normalization as per methodology
+                    # Get elevation gain (only positive, negative replaced with 0)
+                    elevation_gain_raw = data.get('elevation_gain', 0)
+                    try:
+                        elevation_gain = max(0.0, float(elevation_gain_raw))
+                    except (ValueError, TypeError):
+                        elevation_gain = 0.0
 
-                    # 1. Inverted PASER Score: norm_PPS = PPS / 10
-                    #    Where PPS ranges 0-10 (0=excellent pavement, 10=worst)
-                    norm_pps = pps / 10.0
-                    # Clamp to valid range [0, 1]
-                    norm_pps = max(0.0, min(1.0, norm_pps))
+                    # Apply robust scaling normalization to quality metrics ONLY
+                    # norm_x = (x - median(x)) / IQR(x)
 
-                    # 2. Elevation Gain: norm_elev = elev_gain / max_elev_gain
-                    #    Only positive elevation gains considered (uphill)
-                    elev_gain_positive = max(0.0, elevation_gain)
-                    norm_elev = elev_gain_positive / max_elev_gain if max_elev_gain > 0 else 0.0
+                    # 1. Inverted PASER Score (robust scaled)
+                    norm_pps = (pps - pps_median) / pps_iqr
 
-                    # 3. Distance: norm_dist = (distance - min_dist) / (max_dist - min_dist)
-                    #    Simplified to distance / max_dist when min_dist ≈ 0
-                    if min_dist < 1.0:  # min_dist approximately 0
-                        norm_dist = distance / max_dist if max_dist > 0 else 0.5
-                    else:
-                        norm_dist = (distance - min_dist) / (max_dist - min_dist) if max_dist > min_dist else 0.5
+                    # 2. Elevation Gain (robust scaled)
+                    norm_elev = (elevation_gain - elev_median) / elev_iqr
 
-                    # Calculate composite weight using ROC weights (methodology formula)
-                    # composite_weight = α × norm_PPS + β × norm_elev + γ × norm_dist
+                    # Distance is NOT normalized — it enters as the constant wd term.
+                    # This avoids double-counting: if norm_dist were included in the
+                    # composite weight and then multiplied by length again, distance
+                    # would have a quadratic (length²) effect, causing the algorithm
+                    # to avoid long individual edges and paradoxically produce longer
+                    # total paths. Instead, wd acts as a baseline cost-per-meter:
+                    #   edge_cost = (wp×norm_PPS + we×norm_elev + wd) × length
+                    # The wd×length term contributes linearly to total path distance.
                     composite_weight = (
-                        alpha * norm_pps +      # 0.611 × normalized inverted PASER
-                        beta * norm_elev +      # 0.278 × normalized elevation gain
-                        gamma * norm_dist       # 0.111 × normalized distance
+                        wp * norm_pps +
+                        we * norm_elev +
+                        wd               # distance enters as constant, scaled by length below
                     )
 
-                    # Ensure positive weight (avoid zero-weight edges)
+                    # Ensure positive edge cost (Dijkstra requires non-negative weights)
+                    # Robust scaling can produce negative values when below median,
+                    # but the wd baseline makes this rare
                     composite_weight = max(0.001, composite_weight)
 
-                    # CRITICAL: Multiply by edge length to create proper path cost
-                    # Without this, Dijkstra favors paths with fewer edges regardless of quality
-                    # This makes the cost proportional to distance: longer bad roads cost more
+                    # Multiply by edge length to create proper path cost
+                    # - For pavement/elevation: longer bad roads cost more (correct scaling)
+                    # - For distance: wd × length gives linear distance contribution
                     edge_cost = composite_weight * distance
 
-                    # Store in graph
-                    data['composite_weight'] = edge_cost
+                    # Store in graph with profile-specific key
+                    data[weight_key] = edge_cost
                     successful_calculations += 1
 
                 except Exception as e:
                     # Fallback: use mid-range default weight
-                    data['composite_weight'] = 0.5
+                    data[weight_key] = 0.5 * float(data.get('length', 100))
                     print(f"Warning: Could not calculate composite weight for edge {u}-{v}: {e}")
 
-            print(f"Debug: Multi-criteria - successfully calculated weights for "
+            print(f"[{profile_label}] Successfully calculated weights for "
                   f"{successful_calculations}/{len(list(self.graph.edges()))} edges")
 
             # Find path using composite weights (Dijkstra's algorithm via NetworkX)
             path = nx.shortest_path(
-                self.graph, source=start, target=end, weight='composite_weight'
+                self.graph, source=start, target=end, weight=weight_key
             )
-            print(f"Debug: Multi-criteria algorithm succeeded with methodology-specified ROC weighting")
+            print(f"[{profile_label}] Path found with {len(path)} nodes using robust scaling + alternating weights")
             return path
         except nx.NetworkXNoPath:
             raise ValueError("No path found between nodes")
         except Exception as e:
-            print(f"Debug: Multi-criteria algorithm error: {e}")
+            print(f"Debug: {profile_label} algorithm error: {e}")
             # Try fallback to distance if multi-criteria optimization fails
             try:
                 return self._shortest_path_algorithm(start, end)
             except:
-                raise Exception(f"Multi-criteria optimization failed: {e}")
+                raise Exception(f"{profile_label} optimization failed: {e}")
 
     def run(self) -> None:
         """Run the GUI application"""

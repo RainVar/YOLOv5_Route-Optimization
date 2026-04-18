@@ -1186,26 +1186,36 @@ class RouteOptimizationGUI:
                 raise Exception(f"Pavement optimization failed: {e}")
 
     def _multi_criteria_path(self, start: int, end: int) -> List[int]:
-        """Multi-criteria path optimization using proper min-max normalization and ROC weights"""
+        """
+        Multi-criteria path optimization using methodology-specified normalization and ROC weights.
+        
+        Normalization formulas (from methodology):
+        - Inverted PASER Score: norm_PPS = PPS / 10 (where PPS is inverted, 0=excellent, 10=worst)
+        - Elevation Gain: norm_elev = elev_gain / max_elev_gain
+        - Distance: norm_dist = (distance - min_dist) / (max_dist - min_dist)
+                    Simplified to: norm_dist = distance / max_dist (when min_dist ≈ 0)
+        
+        Composite weight formula:
+        composite_weight = 0.611 × norm_PPS + 0.278 × norm_elev + 0.111 × norm_dist
+        
+        Edge cost calculation (for Dijkstra's algorithm):
+        edge_cost = composite_weight × edge_length
+        
+        The multiplication by edge_length is essential because:
+        1. It makes the cost proportional to distance traveled (longer bad roads cost more)
+        2. It ensures paths are compared fairly regardless of edge count
+        3. Without it, Dijkstra would favor paths with fewer edges, not better quality
+        """
         try:
-            # First pass: Calculate min/max values for normalization
+            # First pass: Calculate max values for normalization (as per methodology)
             print(f"Debug: Calculating normalization ranges for {len(list(self.graph.edges()))} edges")
 
-            # Calculate min/max for each metric
-            pci_values = []
+            # Collect values for normalization ranges
             elevation_gains = []
             distances = []
 
             for u, v, k, data in self.graph.edges(keys=True, data=True):
-                # PCI values (proxy PASER)
-                if 'inverted_paser' in data:  # Use inverted_paser as PCI equivalent
-                    try:
-                        pci_val = float(data['inverted_paser'])
-                        pci_values.append(pci_val)
-                    except:
-                        pass
-
-                # Elevation gains
+                # Elevation gains (only positive values as per methodology)
                 if 'elevation_gain' in data:
                     try:
                         elev_val = float(data['elevation_gain'])
@@ -1223,14 +1233,17 @@ class RouteOptimizationGUI:
                     except:
                         pass
 
-            # Calculate normalization ranges
-            pci_min, pci_max = min(pci_values), max(pci_values) if pci_values else (3.0, 7.0)
-            elev_min, elev_max = min(elevation_gains), max(elevation_gains) if elevation_gains else (0, 1)
-            dist_min, dist_max = min(distances), max(distances) if distances else (1, 1000)
+            # Calculate normalization ranges as per methodology
+            # PASER: Fixed scale 0-10, so we just divide by 10 (no need for min/max)
+            max_elev_gain = max(elevation_gains) if elevation_gains else 1.0
+            min_dist = min(distances) if distances else 0.0
+            max_dist = max(distances) if distances else 1000.0
 
-            print(f"Debug: Normalization ranges - PCI: {pci_min:.2f}-{pci_max:.2f}, Elev: {elev_min:.2f}-{elev_max:.2f}, Dist: {dist_min:.2f}-{dist_max:.2f}")
+            print(f"Debug: Normalization ranges (methodology) - PASER: fixed 0-10 scale, "
+                  f"max_elev_gain: {max_elev_gain:.2f}m, dist: {min_dist:.2f}-{max_dist:.2f}m")
 
-            # ROC weights from documentation
+            # ROC weights from methodology (Rank Order Centroid method)
+            # Based on ranking: pavement condition > elevation gain > distance
             alpha = 0.611  # Pavement quality (61.1%)
             beta = 0.278   # Elevation (27.8%)
             gamma = 0.111  # Distance (11.1%)
@@ -1242,55 +1255,86 @@ class RouteOptimizationGUI:
                     # Get raw values
                     distance_raw = data.get('length', 100)
                     elevation_gain_raw = data.get('elevation_gain', 0)
-                    pci_raw = data.get('inverted_paser', 6.0)  # Use inverted_paser as PCI
+
+                    # Get PASER score - prefer inverted_paser if available, otherwise invert paser_score
+                    if 'inverted_paser' in data:
+                        pps_raw = data.get('inverted_paser', 5.0)
+                    else:
+                        # Invert PASER score: inverted = 10 - original
+                        # So PASER 10 (best) becomes 0, PASER 1 (worst) becomes 9
+                        paser_raw = data.get('paser_score', 5.0)
+                        try:
+                            paser_val = float(paser_raw) if not isinstance(paser_raw, str) else float(paser_raw.strip())
+                            pps_raw = 10.0 - paser_val
+                        except:
+                            pps_raw = 5.0
 
                     # Convert to numbers with fallbacks
-                    distance = float(distance_raw) if distance_raw != 0 else 100
-                    elevation_gain = float(elevation_gain_raw) if elevation_gain_raw != 0 else 0
-                    pci = float(pci_raw) if pci_raw != 0 else 6.0
+                    distance = float(distance_raw) if distance_raw != 0 else 100.0
+                    elevation_gain = float(elevation_gain_raw) if elevation_gain_raw != 0 else 0.0
 
-                    # Apply normalization
-                    # PCI: min-max normalization (inverted_paser already represents cost)
-                    if pci_max > pci_min:
-                        norm_pci = (pci - pci_min) / (pci_max - pci_min)
+                    # Handle inverted PASER score conversion
+                    try:
+                        if isinstance(pps_raw, str):
+                            pps = float(pps_raw.strip())
+                        else:
+                            pps = float(pps_raw) if pps_raw != 0 else 5.0
+                    except:
+                        pps = 5.0
+
+                    # Apply normalization as per methodology
+
+                    # 1. Inverted PASER Score: norm_PPS = PPS / 10
+                    #    Where PPS ranges 0-10 (0=excellent pavement, 10=worst)
+                    norm_pps = pps / 10.0
+                    # Clamp to valid range [0, 1]
+                    norm_pps = max(0.0, min(1.0, norm_pps))
+
+                    # 2. Elevation Gain: norm_elev = elev_gain / max_elev_gain
+                    #    Only positive elevation gains considered (uphill)
+                    elev_gain_positive = max(0.0, elevation_gain)
+                    norm_elev = elev_gain_positive / max_elev_gain if max_elev_gain > 0 else 0.0
+
+                    # 3. Distance: norm_dist = (distance - min_dist) / (max_dist - min_dist)
+                    #    Simplified to distance / max_dist when min_dist ≈ 0
+                    if min_dist < 1.0:  # min_dist approximately 0
+                        norm_dist = distance / max_dist if max_dist > 0 else 0.5
                     else:
-                        norm_pci = 0.5  # Default if no variation
+                        norm_dist = (distance - min_dist) / (max_dist - min_dist) if max_dist > min_dist else 0.5
 
-                    # Elevation: only positive gains, normalized to 0-1
-                    norm_elev = max(0, elevation_gain) / elev_max if elev_max > 0 else 0
-
-                    # Distance: min-max normalization
-                    if dist_max > dist_min:
-                        norm_dist = (distance - dist_min) / (dist_max - dist_min)
-                    else:
-                        norm_dist = distance / dist_max if dist_max > 0 else 0.5
-
-                    # Calculate composite weight using ROC weights
+                    # Calculate composite weight using ROC weights (methodology formula)
+                    # composite_weight = α × norm_PPS + β × norm_elev + γ × norm_dist
                     composite_weight = (
-                        alpha * norm_pci +      # 61.1% pavement quality
-                        beta * norm_elev +      # 27.8% elevation difficulty
-                        gamma * norm_dist       # 11.1% distance
+                        alpha * norm_pps +      # 0.611 × normalized inverted PASER
+                        beta * norm_elev +      # 0.278 × normalized elevation gain
+                        gamma * norm_dist       # 0.111 × normalized distance
                     )
 
-                    # Ensure positive weight
-                    composite_weight = max(0.01, composite_weight)
+                    # Ensure positive weight (avoid zero-weight edges)
+                    composite_weight = max(0.001, composite_weight)
+
+                    # CRITICAL: Multiply by edge length to create proper path cost
+                    # Without this, Dijkstra favors paths with fewer edges regardless of quality
+                    # This makes the cost proportional to distance: longer bad roads cost more
+                    edge_cost = composite_weight * distance
 
                     # Store in graph
-                    data['composite_weight'] = composite_weight
+                    data['composite_weight'] = edge_cost
                     successful_calculations += 1
 
                 except Exception as e:
-                    # Fallback: use default weight
-                    data['composite_weight'] = 5.0
+                    # Fallback: use mid-range default weight
+                    data['composite_weight'] = 0.5
                     print(f"Warning: Could not calculate composite weight for edge {u}-{v}: {e}")
 
-            print(f"Debug: Multi-criteria - successfully calculated weights for {successful_calculations}/{len(list(self.graph.edges()))} edges")
+            print(f"Debug: Multi-criteria - successfully calculated weights for "
+                  f"{successful_calculations}/{len(list(self.graph.edges()))} edges")
 
-            # Find path using composite weights
+            # Find path using composite weights (Dijkstra's algorithm via NetworkX)
             path = nx.shortest_path(
                 self.graph, source=start, target=end, weight='composite_weight'
             )
-            print(f"Debug: Multi-criteria algorithm succeeded with ROC weighting")
+            print(f"Debug: Multi-criteria algorithm succeeded with methodology-specified ROC weighting")
             return path
         except nx.NetworkXNoPath:
             raise ValueError("No path found between nodes")

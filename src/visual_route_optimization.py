@@ -337,6 +337,8 @@ class RouteOptimizationGUI:
                   command=self._reset_view).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar_frame, text="📸 Save Image",
                   command=self._save_image).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar_frame, text="🗺️ Save Box Only",
+                  command=self._save_map_box_only).pack(side=tk.LEFT, padx=2)
 
     def _initialize_plot(self) -> None:
         """Initialize the plot with the road network"""
@@ -1102,6 +1104,70 @@ class RouteOptimizationGUI:
                 messagebox.showinfo("Success", f"Image saved as {filename}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save image: {e}")
+
+    def _save_map_box_only(self) -> None:
+        """Save only the map area inside the axes box (no coordinates or title, but keep legend)."""
+        try:
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+            )
+            if not filename:
+                return
+
+            # Preserve current state to restore later
+            prev_title = self.ax.get_title()
+            prev_xlabel = self.ax.get_xlabel()
+            prev_ylabel = self.ax.get_ylabel()
+
+            prev_xticklabels_vis = [t.get_visible() for t in self.ax.get_xticklabels()]
+            prev_yticklabels_vis = [t.get_visible() for t in self.ax.get_yticklabels()]
+            prev_xticklines_vis = [t.get_visible() for t in self.ax.xaxis.get_ticklines()]
+            prev_yticklines_vis = [t.get_visible() for t in self.ax.yaxis.get_ticklines()]
+
+            # Hide title, axis labels, tick labels, and tick lines (but NOT legend)
+            self.ax.set_title("")
+            self.ax.set_xlabel("")
+            self.ax.set_ylabel("")
+            for lbl in self.ax.get_xticklabels():
+                lbl.set_visible(False)
+            for lbl in self.ax.get_yticklabels():
+                lbl.set_visible(False)
+            for tl in self.ax.xaxis.get_ticklines():
+                tl.set_visible(False)
+            for tl in self.ax.yaxis.get_ticklines():
+                tl.set_visible(False)
+
+            # Update canvas and save only axes bounding box (legend will be included)
+            try:
+                self.canvas.draw()
+            except Exception:
+                pass
+
+            bbox = self.ax.get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
+            self.fig.savefig(filename, dpi=300, bbox_inches=bbox, pad_inches=0.02)
+
+            # Restore title, labels, and ticks
+            self.ax.set_title(prev_title)
+            self.ax.set_xlabel(prev_xlabel)
+            self.ax.set_ylabel(prev_ylabel)
+            for vis, lbl in zip(prev_xticklabels_vis, self.ax.get_xticklabels()):
+                lbl.set_visible(vis)
+            for vis, lbl in zip(prev_yticklabels_vis, self.ax.get_yticklabels()):
+                lbl.set_visible(vis)
+            for vis, tl in zip(prev_xticklines_vis, self.ax.xaxis.get_ticklines()):
+                tl.set_visible(vis)
+            for vis, tl in zip(prev_yticklines_vis, self.ax.yaxis.get_ticklines()):
+                tl.set_visible(vis)
+
+            try:
+                self.canvas.draw()
+            except Exception:
+                pass
+
+            messagebox.showinfo("Success", f"Map box saved as {filename}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save map box image: {e}")
 
     def _export_results(self) -> None:
         """Export route results to JSON"""

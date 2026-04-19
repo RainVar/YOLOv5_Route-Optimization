@@ -775,6 +775,38 @@ class RouteOptimizationGUI:
             summary_text.tag_configure("bold", font=("Arial", 10, "bold"))
             summary_text.config(state=tk.DISABLED)
 
+            # Button frame for export/copy buttons
+            button_frame = ttk.Frame(comp_window)
+            button_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
+
+            def copy_table_to_clipboard():
+                """Copy the table data to clipboard in TSV format (Excel/Docs compatible)"""
+                try:
+                    # Get column headers
+                    headers = ['Route', 'Distance (km)', 'Elevation (m)', 'Avg PASER', 'Efficiency', 'Best Segment', 'Worst Segment']
+                    
+                    # Get all items from treeview
+                    items = tree.get_children()
+                    
+                    # Build TSV string
+                    tsv_data = '\t'.join(headers) + '\n'
+                    
+                    for item in items:
+                        values = tree.item(item, 'values')
+                        tsv_data += '\t'.join(str(v) for v in values) + '\n'
+                    
+                    # Copy to clipboard
+                    self.root.clipboard_clear()
+                    self.root.clipboard_append(tsv_data)
+                    self.root.update()
+                    
+                    messagebox.showinfo("Success", "Table copied to clipboard!\nPaste it into Excel or Docs (Ctrl+V)")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to copy table: {e}")
+
+            ttk.Button(button_frame, text="📋 Copy Table to Clipboard",
+                      command=copy_table_to_clipboard).pack(side=tk.LEFT, padx=5)
+
             # Close button
             close_btn = ttk.Button(comp_window, text="Close Comparison",
                                   command=on_closing)
